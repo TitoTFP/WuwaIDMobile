@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="ink">#F4F7FB</color>
+    <color name="ink_muted">#B8C3D1</color>
+    <color name="surface">#E6172333</color>
+    <color name="surface_border">#536B88A8</color>
+    <color name="accent">#58C9E8</color>
+    <color name="accent_dark">#176A83</color>
+    <color name="danger">#D55258</color>
+    <color name="success">#50C878</color>
+    <color name="warning">#F2B84B</color>
+    <color name="scrim">#B30A1320</color>
+    <color name="launcher_background">#172333</color>
+</resources>
