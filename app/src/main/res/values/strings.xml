@@ -6,6 +6,8 @@
     <string name="checking">Memeriksa game dan patch…</string>
     <string name="please_wait">Mohon tunggu</string>
     <string name="refresh">Periksa ulang</string>
+    <string name="app_update_heading">Pembaruan aplikasi</string>
+    <string name="update_app">Perbarui WuwaID Mobile</string>
     <string name="diagnostics_heading">Diagnostik</string>
     <string name="release_heading">Rilis patch terbaru</string>
     <string name="release_loading">Mengambil informasi rilis…</string>

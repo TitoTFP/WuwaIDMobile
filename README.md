@@ -10,8 +10,9 @@ Launcher Android untuk memasang patch Bahasa Indonesia Wuthering Waves Global me
 - Mengkloning `.sig` resmi game dan membuat mount manifest dengan hash SHA-1.
 - Memblokir patch Vietnam atau mount custom berprioritas tinggi tanpa menghapusnya.
 - Menampilkan status Shizuku, resource game, hash patch, dan catatan rilis.
+- Memeriksa update WuwaID Mobile, memverifikasi APK, lalu membuka konfirmasi installer Android.
 
-Tidak ada NTE, custom font, media bergerak, analytics, log server, atau instalasi otomatis.
+Tidak ada NTE, custom font, media bergerak, analytics, log server, atau instalasi patch otomatis.
 
 ## Persyaratan pengguna
 
@@ -19,10 +20,13 @@ Tidak ada NTE, custom font, media bergerak, analytics, log server, atau instalas
 2. Shizuku terpasang, aktif, dan memberi izin ke WuwaID Mobile.
 3. Data game sudah selesai diunduh.
 4. Game ditutup saat patch dipasang atau diperbarui.
+5. Izin "Instal aplikasi tidak dikenal" hanya diperlukan saat memperbarui WuwaID Mobile.
 
 ## Build
 
 Butuh JDK 17 dan Android SDK 35.
+
+Setiap rilis aplikasi baru wajib menaikkan `versionCode`; `versionName` harus cocok dengan tag tanpa awalan `v`.
 
 ```bash
 ./gradlew test lint assembleDebug
@@ -52,6 +56,7 @@ Jangan commit keystore atau password. Alias resmi aplikasi: `wuwaid-mobile`.
 - Simulasikan unduhan terputus; patch lama harus tetap utuh.
 - Pasang artefak Vietnam; instalasi WuwaID harus diblokir tanpa menghapusnya.
 - Uninstall; hanya `wuwaindonesia/WuWaID_99_P.*` dan `Mount/wuwaindonesia.txt` yang hilang.
+- Saat rilis aplikasi lebih baru tersedia, pastikan APK lolos verifikasi dan installer Android meminta konfirmasi update.
 
 Rilis `v0.1.0` tetap prerelease sampai skenario di atas lulus pada perangkat nyata.
 

@@ -76,6 +76,42 @@
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:background="@drawable/panel_background"
+                android:orientation="vertical"
+                android:padding="18dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/app_update_heading"
+                    android:textColor="@color/ink"
+                    android:textSize="17sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/appUpdateText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="9dp"
+                    android:textColor="@color/ink_muted"
+                    android:textSize="13sp" />
+
+                <Button
+                    android:id="@+id/appUpdateButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="46dp"
+                    android:layout_marginTop="14dp"
+                    android:background="@drawable/button_secondary"
+                    android:text="@string/update_app"
+                    android:textAllCaps="false"
+                    android:textColor="@color/ink"
+                    android:visibility="gone" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
                 android:layout_marginTop="24dp"
                 android:background="@drawable/panel_background"
                 android:orientation="vertical"

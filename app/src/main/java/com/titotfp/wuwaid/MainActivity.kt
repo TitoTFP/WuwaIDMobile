@@ -4,9 +4,13 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.content.pm.PackageInfo
+import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.view.View
 import android.widget.Toast
 import com.titotfp.wuwaid.databinding.ActivityMainBinding
@@ -27,6 +31,12 @@ class MainActivity : Activity() {
 
     @Volatile
     private var releaseVerifiedOnline = false
+
+    @Volatile
+    private var latestAppRelease: AppRelease? = null
+
+    @Volatile
+    private var appUpdateChecked = false
 
     @Volatile
     private var busy = false
@@ -50,8 +60,10 @@ class MainActivity : Activity() {
         binding.primaryButton.setOnClickListener { performPrimaryAction() }
         binding.refreshButton.setOnClickListener { refresh(fetchNetwork = true) }
         binding.uninstallButton.setOnClickListener { confirmUninstall() }
+        binding.appUpdateButton.setOnClickListener { confirmAppUpdate() }
 
         renderRelease(latestRelease, latestRelease?.let { "Cache rilis terakhir" })
+        renderAppUpdate(null, checked = false, warning = null)
         shizuku.start()
         refresh(fetchNetwork = true)
     }
@@ -79,6 +91,9 @@ class MainActivity : Activity() {
         executor.execute {
             var release = latestRelease ?: releaseStore.load()
             var networkMessage = ""
+            var appUpdate = latestAppRelease
+            var appUpdateMessage = ""
+            var updateChecked = appUpdateChecked
             if (fetchNetwork) {
                 try {
                     release = releaseClient.fetchLatest()
@@ -87,6 +102,15 @@ class MainActivity : Activity() {
                     releaseStore.save(release)
                 } catch (error: Throwable) {
                     networkMessage = "GitHub: ${readableError(error)}"
+                }
+                try {
+                    appUpdate = releaseClient.fetchLatestAppUpdate(BuildConfig.VERSION_NAME)
+                    latestAppRelease = appUpdate
+                    appUpdateChecked = true
+                    updateChecked = true
+                    if (appUpdate == null) clearAppUpdateCache()
+                } catch (error: Throwable) {
+                    appUpdateMessage = "Update aplikasi: ${readableError(error)}"
                 }
             }
 
@@ -119,6 +143,10 @@ class MainActivity : Activity() {
             )
             val state = LauncherStateResolver.resolve(inputs)
             val diagnosticLines = buildList {
+                add("Aplikasi: ${BuildConfig.VERSION_NAME}")
+                appUpdate?.let { add("Update aplikasi: ${it.tag} (${formatBytes(it.size)})") }
+                if (appUpdate == null && updateChecked) add("Update aplikasi: versi terbaru")
+                if (appUpdateMessage.isNotBlank()) add(appUpdateMessage)
                 add("Shizuku: ${shizukuSummary(available, permission, serviceReady)}")
                 if (shizuku.isBinding()) add("UserService: sedang menghubungkan")
                 shizuku.lastError().takeIf(String::isNotBlank)?.let { add("File service: $it") }
@@ -138,6 +166,7 @@ class MainActivity : Activity() {
                 diagnostics = diagnosticLines.joinToString("\n")
                 renderState(state, inputs, networkMessage)
                 renderRelease(release, networkMessage.takeIf(String::isNotBlank))
+                renderAppUpdate(appUpdate, updateChecked, appUpdateMessage.takeIf(String::isNotBlank))
                 binding.diagnosticsText.text = diagnostics
                 binding.uninstallButton.isEnabled = canUninstall && !busy
                 binding.refreshButton.isEnabled = !busy
@@ -180,7 +209,7 @@ class MainActivity : Activity() {
 
         busy = true
         currentStatus = LauncherStatus.BUSY
-        renderBusy("Menyiapkan unduhan…", 0)
+        renderBusy("Sedang memasang patch", "Menyiapkan unduhan…", 0)
         executor.execute {
             val patchDirectory = getExternalFilesDir("patch")
                 ?: return@execute runOnUiThread { finishWithError("External files directory tidak tersedia") }
@@ -192,11 +221,17 @@ class MainActivity : Activity() {
                     if (percent != lastPercent) {
                         lastPercent = percent
                         runOnUiThread {
-                            renderBusy("Mengunduh ${formatBytes(downloaded)} / ${formatBytes(total)}", percent)
+                            renderBusy(
+                                "Sedang memasang patch",
+                                "Mengunduh ${formatBytes(downloaded)} / ${formatBytes(total)}",
+                                percent,
+                            )
                         }
                     }
                 }
-                runOnUiThread { renderBusy("Memasang patch melalui Shizuku…", 100) }
+                runOnUiThread {
+                    renderBusy("Sedang memasang patch", "Memasang patch melalui Shizuku…", 100)
+                }
                 GamePaths(shizuku).install(partial.absolutePath, release)
                 partial.delete()
                 busy = false
@@ -209,6 +244,142 @@ class MainActivity : Activity() {
                 partial.delete()
                 runOnUiThread { finishWithError(readableError(error)) }
             }
+        }
+    }
+
+    private fun confirmAppUpdate() {
+        val release = latestAppRelease ?: return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
+            toast("Izinkan WuwaID Mobile memasang aplikasi, lalu tekan Perbarui lagi")
+            try {
+                startActivity(
+                    Intent(
+                        Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                        Uri.parse("package:$packageName"),
+                    ),
+                )
+            } catch (_: ActivityNotFoundException) {
+                toast("Pengaturan instalasi aplikasi tidak ditemukan")
+            }
+            return
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("Perbarui ke ${release.tag}?")
+            .setMessage(buildString {
+                append("${release.title}\n${formatBytes(release.size)}")
+                release.notes.takeIf(String::isNotBlank)?.let { append("\n\n$it") }
+                append("\n\nAndroid akan meminta konfirmasi instalasi.")
+            })
+            .setNegativeButton(R.string.cancel, null)
+            .setPositiveButton(R.string.update_app) { _, _ -> downloadAppUpdate(release) }
+            .show()
+    }
+
+    private fun downloadAppUpdate(release: AppRelease) {
+        if (busy) return
+        busy = true
+        currentStatus = LauncherStatus.BUSY
+        renderBusy(
+            "Mengunduh update aplikasi",
+            "Menyiapkan unduhan…",
+            0,
+            "APK diverifikasi sebelum installer Android dibuka.",
+        )
+        executor.execute {
+            val directory = getExternalFilesDir(UpdateApkProvider.DIRECTORY)
+                ?: return@execute runOnUiThread { finishWithError("External files directory tidak tersedia") }
+            val partial = File(directory, "${UpdateApkProvider.FILE_NAME}.part")
+            val apk = File(directory, UpdateApkProvider.FILE_NAME)
+            var lastPercent = -1
+            try {
+                releaseClient.download(release, partial) { downloaded, total ->
+                    val percent = if (total > 0) {
+                        ((downloaded * 100L) / total).toInt().coerceIn(0, 100)
+                    } else {
+                        0
+                    }
+                    if (percent != lastPercent) {
+                        lastPercent = percent
+                        runOnUiThread {
+                            renderBusy(
+                                "Mengunduh update aplikasi",
+                                "${formatBytes(downloaded)} / ${formatBytes(total)}",
+                                percent,
+                                "APK diverifikasi sebelum installer Android dibuka.",
+                            )
+                        }
+                    }
+                }
+                if (apk.exists()) check(apk.delete()) { "Cache APK lama tidak dapat dihapus" }
+                check(partial.renameTo(apk)) { "APK update tidak dapat disiapkan" }
+                verifyUpdateApk(apk)
+                busy = false
+                runOnUiThread {
+                    hideProgress()
+                    launchAppInstaller()
+                    refresh(fetchNetwork = false)
+                }
+            } catch (error: Throwable) {
+                partial.delete()
+                apk.delete()
+                busy = false
+                runOnUiThread {
+                    hideProgress()
+                    toast(readableError(error))
+                    refresh(fetchNetwork = false)
+                }
+            }
+        }
+    }
+
+    private fun verifyUpdateApk(file: File) {
+        val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            PackageManager.GET_SIGNING_CERTIFICATES
+        } else {
+            @Suppress("DEPRECATION")
+            PackageManager.GET_SIGNATURES
+        }
+        val archive = packageManager.getPackageArchiveInfo(file.absolutePath, flags)
+            ?: error("APK update tidak valid")
+        val installed = packageManager.getPackageInfo(packageName, flags)
+        check(archive.packageName == packageName) { "Package APK update tidak cocok" }
+        check(versionCode(archive) > versionCode(installed)) { "versionCode APK update tidak lebih baru" }
+        check(signatures(archive) == signatures(installed)) { "Sertifikat APK update tidak cocok" }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun signatures(info: PackageInfo): Set<String> {
+        val values = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            info.signingInfo?.apkContentsSigners.orEmpty()
+        } else {
+            info.signatures.orEmpty()
+        }
+        return values.map { it.toCharsString() }.toSet()
+    }
+
+    @Suppress("DEPRECATION")
+    private fun versionCode(info: PackageInfo): Long = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        info.longVersionCode
+    } else {
+        info.versionCode.toLong()
+    }
+
+    private fun launchAppInstaller() {
+        try {
+            val intent = Intent(Intent.ACTION_VIEW)
+                .setDataAndType(UpdateApkProvider.uri(this), UpdateApkProvider.MIME_TYPE)
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            startActivity(intent)
+        } catch (_: ActivityNotFoundException) {
+            toast("Installer APK tidak ditemukan")
+        }
+    }
+
+    private fun clearAppUpdateCache() {
+        getExternalFilesDir(UpdateApkProvider.DIRECTORY)?.let { directory ->
+            File(directory, UpdateApkProvider.FILE_NAME).delete()
+            File(directory, "${UpdateApkProvider.FILE_NAME}.part").delete()
         }
     }
 
@@ -229,7 +400,7 @@ class MainActivity : Activity() {
         }
         busy = true
         currentStatus = LauncherStatus.BUSY
-        renderBusy("Menghapus file WuwaID…", 0)
+        renderBusy("Sedang menghapus patch", "Menghapus file WuwaID…", 0)
         executor.execute {
             try {
                 val removed = GamePaths(shizuku).uninstall()
@@ -349,17 +520,37 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun renderBusy(message: String, percent: Int) {
+    private fun renderAppUpdate(release: AppRelease?, checked: Boolean, warning: String?) {
+        binding.appUpdateText.text = when {
+            release != null -> buildString {
+                append("${release.tag} tersedia · ${formatBytes(release.size)}")
+                append("\n${warning ?: release.title}")
+            }
+            warning != null -> "Versi ${BuildConfig.VERSION_NAME}\n$warning"
+            checked -> "Versi ${BuildConfig.VERSION_NAME} · terbaru"
+            else -> "Versi ${BuildConfig.VERSION_NAME} · sedang diperiksa"
+        }
+        binding.appUpdateButton.visibility = if (release == null) View.GONE else View.VISIBLE
+        binding.appUpdateButton.isEnabled = release != null && !busy
+    }
+
+    private fun renderBusy(
+        title: String,
+        message: String,
+        percent: Int,
+        detail: String = getString(R.string.close_game_hint),
+    ) {
         currentStatus = LauncherStatus.BUSY
         binding.progressGroup.visibility = View.VISIBLE
         binding.downloadProgress.progress = percent
         binding.progressText.text = message
-        binding.statusTitle.text = "Sedang memasang patch"
-        binding.statusDetail.text = getString(R.string.close_game_hint)
+        binding.statusTitle.text = title
+        binding.statusDetail.text = detail
         binding.primaryButton.text = "Mohon tunggu"
         binding.primaryButton.isEnabled = false
         binding.refreshButton.isEnabled = false
         binding.uninstallButton.isEnabled = false
+        binding.appUpdateButton.isEnabled = false
         binding.statusDot.backgroundTintList = ColorStateList.valueOf(getColor(R.color.accent))
     }
 
@@ -379,6 +570,7 @@ class MainActivity : Activity() {
         binding.primaryButton.isEnabled = true
         binding.refreshButton.isEnabled = true
         binding.uninstallButton.isEnabled = canUninstall
+        binding.appUpdateButton.isEnabled = latestAppRelease != null
         binding.statusDot.backgroundTintList = ColorStateList.valueOf(getColor(R.color.danger))
         binding.diagnosticsText.text = "$diagnostics\nError: $message"
     }

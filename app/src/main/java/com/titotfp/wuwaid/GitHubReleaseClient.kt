@@ -19,11 +19,54 @@ class GitHubReleaseClient {
         return ReleaseParser.finish(parsed, fallback)
     }
 
+    fun fetchLatestAppUpdate(currentVersion: String): AppRelease? {
+        val parsed = AppReleaseParser.parseLatest(
+            getText(APP_RELEASES_URL, githubApi = true),
+            currentVersion,
+        ) ?: return null
+        val fallback = if (parsed.digest == null) {
+            val url = parsed.checksumsUrl ?: error("Rilis aplikasi tidak memiliki SHA256sums.txt")
+            AppReleaseParser.checksumForApk(getText(url), parsed.tag)
+        } else {
+            null
+        }
+        return AppReleaseParser.finish(parsed, fallback)
+    }
+
     fun download(release: PatchRelease, destination: File, progress: (Long, Long) -> Unit) {
+        downloadVerified(
+            url = release.assetUrl,
+            size = release.size,
+            sha256 = release.sha256,
+            label = "patch",
+            destination = destination,
+            progress = progress,
+        )
+    }
+
+    fun download(release: AppRelease, destination: File, progress: (Long, Long) -> Unit) {
+        downloadVerified(
+            url = release.assetUrl,
+            size = release.size,
+            sha256 = release.sha256,
+            label = "APK update",
+            destination = destination,
+            progress = progress,
+        )
+    }
+
+    private fun downloadVerified(
+        url: String,
+        size: Long,
+        sha256: String,
+        label: String,
+        destination: File,
+        progress: (Long, Long) -> Unit,
+    ) {
         require(destination.name.endsWith(".part")) { "Unduhan harus memakai file .part" }
         destination.parentFile?.mkdirs()
         destination.delete()
-        val connection = open(release.assetUrl)
+        val connection = open(url)
         try {
             val digest = MessageDigest.getInstance("SHA-256")
             var downloaded = 0L
@@ -36,17 +79,17 @@ class GitHubReleaseClient {
                         output.write(buffer, 0, count)
                         digest.update(buffer, 0, count)
                         downloaded += count
-                        progress(downloaded, release.size)
+                        progress(downloaded, size)
                     }
                     output.fd.sync()
                 }
             }
-            check(downloaded == release.size) {
-                "Ukuran patch tidak cocok: $downloaded dari ${release.size} byte"
+            check(downloaded == size) {
+                "Ukuran $label tidak cocok: $downloaded dari $size byte"
             }
             val actual = digest.digest().toHex()
-            check(actual.equals(release.sha256, ignoreCase = true)) {
-                "SHA-256 patch tidak cocok"
+            check(actual.equals(sha256, ignoreCase = true)) {
+                "SHA-256 $label tidak cocok"
             }
         } catch (error: Throwable) {
             destination.delete()
@@ -90,6 +133,7 @@ class GitHubReleaseClient {
 
     companion object {
         const val LATEST_RELEASE_URL = "https://api.github.com/repos/TitoTFP/WuwaID/releases/latest"
+        const val APP_RELEASES_URL = "https://api.github.com/repos/TitoTFP/WuwaIDMobile/releases?per_page=20"
         private const val BUFFER_SIZE = 64 * 1024
     }
 }
