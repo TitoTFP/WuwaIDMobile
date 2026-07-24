@@ -27,4 +27,15 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
 
       - name: Test, lint, and build debug APK
-        run: ./gradlew --no-daemon test lint assembleDebug
+        shell: bash
+        run: |
+          set -o pipefail
+          ./gradlew --no-daemon test lint assembleDebug 2>&1 | tee gradle.log
+
+      - name: Upload Gradle log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gradle-log
+          path: gradle.log
+          retention-days: 7
