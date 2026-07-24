@@ -16,10 +16,10 @@ internal interface ShizukuGateway {
         fun onBinderReceived()
         fun onBinderDead()
         fun onPermissionResult(requestCode: Int, granted: Boolean)
-        fun onServiceConnected(service: UserServiceFiles?)
-        fun onServiceDisconnected()
-        fun onBindingDied()
-        fun onNullBinding()
+        fun onServiceConnected(attemptId: Int, service: UserServiceFiles?)
+        fun onServiceDisconnected(attemptId: Int)
+        fun onBindingDied(attemptId: Int)
+        fun onNullBinding(attemptId: Int)
     }
 
     fun start(listener: Listener)
@@ -27,41 +27,16 @@ internal interface ShizukuGateway {
     fun isAvailable(): Boolean
     fun hasPermission(): Boolean
     fun requestPermission(requestCode: Int)
-    fun bindUserService()
-    fun unbindUserService(remove: Boolean)
+    fun bindUserService(attemptId: Int)
+    fun unbindUserService(attemptId: Int, remove: Boolean)
 }
 
 internal class AndroidShizukuGateway(
     context: Context,
 ) : ShizukuGateway {
     private val appContext = context.applicationContext
+    private val connections = mutableMapOf<Int, ServiceConnection>()
     private var listener: ShizukuGateway.Listener? = null
-
-    private val connection = object : ServiceConnection {
-        override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
-            val service = runCatching {
-                val validBinder = requireNotNull(binder) { "Binder UserService kosong" }
-                check(validBinder.pingBinder()) { "Binder UserService tidak aktif" }
-                val remote = checkNotNull(IFileService.Stub.asInterface(validBinder)) {
-                    "Interface UserService tidak tersedia"
-                }
-                RemoteUserServiceFiles(remote)
-            }.getOrNull()
-            listener?.onServiceConnected(service)
-        }
-
-        override fun onServiceDisconnected(name: ComponentName?) {
-            listener?.onServiceDisconnected()
-        }
-
-        override fun onBindingDied(name: ComponentName?) {
-            listener?.onBindingDied()
-        }
-
-        override fun onNullBinding(name: ComponentName?) {
-            listener?.onNullBinding()
-        }
-    }
 
     private val binderReceivedListener = Shizuku.OnBinderReceivedListener {
         listener?.onBinderReceived()
@@ -87,6 +62,10 @@ internal class AndroidShizukuGateway(
     }
 
     override fun stop() {
+        connections.values.toList().forEach { connection ->
+            runCatching { Shizuku.unbindUserService(userServiceArgs(), connection, true) }
+        }
+        connections.clear()
         Shizuku.removeBinderReceivedListener(binderReceivedListener)
         Shizuku.removeBinderDeadListener(binderDeadListener)
         Shizuku.removeRequestPermissionResultListener(permissionListener)
@@ -103,12 +82,50 @@ internal class AndroidShizukuGateway(
         Shizuku.requestPermission(requestCode)
     }
 
-    override fun bindUserService() {
-        Shizuku.bindUserService(userServiceArgs(), connection)
+    override fun bindUserService(attemptId: Int) {
+        check(attemptId !in connections) { "Percobaan UserService $attemptId sudah terdaftar" }
+        val connection = createConnection(attemptId)
+        connections[attemptId] = connection
+        try {
+            Shizuku.bindUserService(userServiceArgs(), connection)
+        } catch (error: Throwable) {
+            connections.remove(attemptId)
+            throw error
+        }
     }
 
-    override fun unbindUserService(remove: Boolean) {
+    override fun unbindUserService(attemptId: Int, remove: Boolean) {
+        val connection = connections.remove(attemptId) ?: return
         Shizuku.unbindUserService(userServiceArgs(), connection, remove)
+    }
+
+    private fun createConnection(attemptId: Int): ServiceConnection = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
+            val service = runCatching {
+                val validBinder = requireNotNull(binder) { "Binder UserService kosong" }
+                check(validBinder.pingBinder()) { "Binder UserService tidak aktif" }
+                val remote = checkNotNull(IFileService.Stub.asInterface(validBinder)) {
+                    "Interface UserService tidak tersedia"
+                }
+                RemoteUserServiceFiles(remote)
+            }.getOrNull()
+            listener?.onServiceConnected(attemptId, service)
+        }
+
+        override fun onServiceDisconnected(name: ComponentName?) {
+            connections.remove(attemptId)
+            listener?.onServiceDisconnected(attemptId)
+        }
+
+        override fun onBindingDied(name: ComponentName?) {
+            connections.remove(attemptId)
+            listener?.onBindingDied(attemptId)
+        }
+
+        override fun onNullBinding(name: ComponentName?) {
+            connections.remove(attemptId)
+            listener?.onNullBinding(attemptId)
+        }
     }
 
     private fun userServiceArgs(): Shizuku.UserServiceArgs = Shizuku.UserServiceArgs(
