@@ -1,24 +1,23 @@
 package com.titotfp.wuwaid
 
-import android.content.ComponentName
 import android.content.Context
-import android.content.ServiceConnection
-import android.content.pm.PackageManager
-import android.os.Handler
-import android.os.IBinder
-import android.os.Looper
-import android.os.SystemClock
-import rikka.shizuku.Shizuku
 
-class ShizukuFileClient(
-    context: Context,
+class ShizukuFileClient internal constructor(
+    private val gateway: ShizukuGateway,
+    private val scheduler: TaskScheduler,
     private val onStateChanged: () -> Unit,
-) : PrivilegedFiles {
-    private val appContext = context.applicationContext
-    private val mainHandler = Handler(Looper.getMainLooper())
+) : PrivilegedFiles, ShizukuGateway.Listener {
+    constructor(
+        context: Context,
+        onStateChanged: () -> Unit,
+    ) : this(
+        gateway = AndroidShizukuGateway(context),
+        scheduler = HandlerTaskScheduler(),
+        onStateChanged = onStateChanged,
+    )
 
     @Volatile
-    private var service: IFileService? = null
+    private var service: UserServiceFiles? = null
 
     @Volatile
     private var binding = false
@@ -27,115 +26,109 @@ class ShizukuFileClient(
     private var localError = ""
 
     private var started = false
-    private var bindGeneration = 0
+    private var nextAttemptId = 0
+    private var activeAttemptId: Int? = null
     private var consecutiveFailures = 0
-    private var retryNotBefore = 0L
+    private var pendingBind: ScheduledTask? = null
+    private var pendingTimeout: ScheduledTask? = null
 
-    private val reconnectRunnable = Runnable { bind() }
-
-    private val connection = object : ServiceConnection {
-        override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
-            if (!started) return
-
-            val connected = runCatching {
-                val validBinder = requireNotNull(binder) { "Binder UserService kosong" }
-                check(validBinder.pingBinder()) { "Binder UserService tidak aktif" }
-                checkNotNull(IFileService.Stub.asInterface(validBinder)) {
-                    "Interface UserService tidak tersedia"
-                }
-            }.getOrElse { error ->
-                failBinding("UserService tidak valid: ${errorMessage(error)}")
-                return
-            }
-
-            service = connected
-            binding = false
-            consecutiveFailures = 0
-            retryNotBefore = 0L
-            localError = ""
-            mainHandler.removeCallbacks(reconnectRunnable)
-            onStateChanged()
-        }
-
-        override fun onServiceDisconnected(name: ComponentName?) {
-            if (!started || (service == null && !binding)) return
-            failBinding("UserService terputus", unbind = false)
-        }
-
-        override fun onBindingDied(name: ComponentName?) {
-            if (!started || (service == null && !binding)) return
-            failBinding("Binding UserService berhenti")
-        }
-
-        override fun onNullBinding(name: ComponentName?) {
-            if (!started || (service == null && !binding)) return
-            failBinding("UserService tidak mengembalikan binder")
-        }
-    }
-
-    private val binderReceivedListener = Shizuku.OnBinderReceivedListener {
+    override fun onBinderReceived() {
+        if (!started) return
+        consecutiveFailures = 0
         if (hasPermission()) bind()
         onStateChanged()
     }
 
-    private val binderDeadListener = Shizuku.OnBinderDeadListener {
-        bindGeneration++
-        mainHandler.removeCallbacks(reconnectRunnable)
+    override fun onBinderDead() {
+        if (!started) return
+        cancelPendingTasks()
+        activeAttemptId = null
         service = null
         binding = false
         consecutiveFailures = 0
-        retryNotBefore = 0L
         localError = "Layanan Shizuku terputus"
         onStateChanged()
     }
 
-    private val permissionListener = Shizuku.OnRequestPermissionResultListener { requestCode, grantResult ->
-        if (requestCode == REQUEST_CODE && grantResult == PackageManager.PERMISSION_GRANTED) {
+    override fun onPermissionResult(requestCode: Int, granted: Boolean) {
+        if (!started || requestCode != REQUEST_CODE) return
+        if (granted) {
             consecutiveFailures = 0
-            retryNotBefore = 0L
+            localError = ""
             bind()
+        } else {
+            localError = "Izin Shizuku ditolak"
         }
         onStateChanged()
+    }
+
+    override fun onServiceConnected(attemptId: Int, service: UserServiceFiles?) {
+        if (!started || attemptId != activeAttemptId) {
+            runCatching { gateway.unbindUserService(attemptId, true) }
+            return
+        }
+
+        pendingTimeout?.cancel()
+        pendingTimeout = null
+
+        if (service == null || !service.isAlive()) {
+            failBinding(attemptId, "UserService tidak mengembalikan binder yang aktif")
+            return
+        }
+
+        this.service = service
+        binding = false
+        consecutiveFailures = 0
+        localError = ""
+        onStateChanged()
+    }
+
+    override fun onServiceDisconnected(attemptId: Int) {
+        if (!started || attemptId != activeAttemptId) return
+        failBinding(attemptId, "UserService terputus", unbind = false)
+    }
+
+    override fun onBindingDied(attemptId: Int) {
+        if (!started || attemptId != activeAttemptId) return
+        failBinding(attemptId, "Binding UserService berhenti", unbind = false)
+    }
+
+    override fun onNullBinding(attemptId: Int) {
+        if (!started || attemptId != activeAttemptId) return
+        failBinding(attemptId, "UserService tidak mengembalikan binder", unbind = false)
     }
 
     fun start() {
         if (started) return
         started = true
-        Shizuku.addBinderReceivedListenerSticky(binderReceivedListener)
-        Shizuku.addBinderDeadListener(binderDeadListener)
-        Shizuku.addRequestPermissionResultListener(permissionListener)
+        gateway.start(this)
         if (isAvailable() && hasPermission()) bind()
     }
 
     fun stop() {
         if (!started) return
         started = false
-        bindGeneration++
-        mainHandler.removeCallbacks(reconnectRunnable)
-        Shizuku.removeBinderReceivedListener(binderReceivedListener)
-        Shizuku.removeBinderDeadListener(binderDeadListener)
-        Shizuku.removeRequestPermissionResultListener(permissionListener)
-        if (service != null || binding) {
-            runCatching { Shizuku.unbindUserService(userServiceArgs(), connection, true) }
+        cancelPendingTasks()
+        activeAttemptId?.let { attemptId ->
+            runCatching { gateway.unbindUserService(attemptId, true) }
         }
+        gateway.stop()
+        activeAttemptId = null
         service = null
         binding = false
         consecutiveFailures = 0
-        retryNotBefore = 0L
     }
 
-    fun isAvailable(): Boolean = runCatching { Shizuku.pingBinder() }.getOrDefault(false)
+    fun isAvailable(): Boolean = gateway.isAvailable()
 
-    fun hasPermission(): Boolean = runCatching {
-        Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
-    }.getOrDefault(false)
+    fun hasPermission(): Boolean = gateway.hasPermission()
 
-    fun isReady(): Boolean = runCatching { service?.asBinder()?.pingBinder() == true }.getOrDefault(false)
+    fun isReady(): Boolean = service?.isAlive() == true
 
     fun isBinding(): Boolean = binding
 
     fun requestPermission() {
-        runCatching { Shizuku.requestPermission(REQUEST_CODE) }
+        runCatching { gateway.requestPermission(REQUEST_CODE) }
             .onFailure {
                 localError = errorMessage(it)
                 onStateChanged()
@@ -144,27 +137,7 @@ class ShizukuFileClient(
 
     fun bind() {
         if (!started || !isAvailable() || !hasPermission() || isReady() || binding) return
-
-        binding = true
-        val generation = ++bindGeneration
-        val now = SystemClock.elapsedRealtime()
-        val retryDelay = (retryNotBefore - now).coerceAtLeast(0L)
-        val delay = maxOf(INITIAL_BIND_DELAY_MS, retryDelay)
-
-        mainHandler.postDelayed({
-            if (!started || generation != bindGeneration || !binding || isReady()) return@postDelayed
-
-            if (!isAvailable() || !hasPermission()) {
-                binding = false
-                onStateChanged()
-                return@postDelayed
-            }
-
-            localError = ""
-            runCatching { Shizuku.bindUserService(userServiceArgs(), connection) }
-                .onSuccess { scheduleBindTimeout(generation) }
-                .onFailure { failBinding("Gagal memulai UserService: ${errorMessage(it)}") }
-        }, delay)
+        scheduleBind(INITIAL_BIND_DELAY_MS)
     }
 
     override fun copyFile(source: String, destination: String): Boolean = call(false) {
@@ -188,23 +161,62 @@ class ShizukuFileClient(
     override fun sha256(path: String): String = call("") { it.sha256(path) }
     override fun lastError(): String = localError.ifBlank { call("") { it.lastError() } }
 
-    private fun scheduleBindTimeout(generation: Int) {
-        mainHandler.postDelayed({
-            if (!started || generation != bindGeneration || !binding || isReady()) return@postDelayed
-            failBinding("UserService tidak merespons dalam ${BIND_TIMEOUT_MS / 1_000} detik")
-        }, BIND_TIMEOUT_MS)
+    private fun scheduleBind(delayMillis: Long) {
+        service = null
+        binding = true
+        val attemptId = ++nextAttemptId
+        activeAttemptId = attemptId
+        pendingBind?.cancel()
+        pendingTimeout?.cancel()
+        pendingTimeout = null
+
+        pendingBind = scheduler.schedule(delayMillis) {
+            pendingBind = null
+            if (!started || attemptId != activeAttemptId || !binding || isReady()) return@schedule
+
+            if (!isAvailable() || !hasPermission()) {
+                activeAttemptId = null
+                binding = false
+                onStateChanged()
+                return@schedule
+            }
+
+            localError = ""
+            runCatching { gateway.bindUserService(attemptId) }
+                .onSuccess {
+                    if (started && attemptId == activeAttemptId && binding && !isReady()) {
+                        scheduleBindTimeout(attemptId)
+                    }
+                }
+                .onFailure {
+                    failBinding(attemptId, "Gagal memulai UserService: ${errorMessage(it)}")
+                }
+        }
     }
 
-    private fun failBinding(message: String, unbind: Boolean = true) {
-        if (!started) return
+    private fun scheduleBindTimeout(attemptId: Int) {
+        pendingTimeout?.cancel()
+        pendingTimeout = scheduler.schedule(BIND_TIMEOUT_MS) {
+            pendingTimeout = null
+            if (!started || attemptId != activeAttemptId || !binding || isReady()) return@schedule
+            failBinding(
+                attemptId = attemptId,
+                message = "UserService tidak merespons dalam ${BIND_TIMEOUT_MS / 1_000} detik",
+            )
+        }
+    }
 
-        bindGeneration++
+    private fun failBinding(attemptId: Int, message: String, unbind: Boolean = true) {
+        if (!started || attemptId != activeAttemptId) return
+
+        cancelPendingTasks()
+        activeAttemptId = null
         service = null
         binding = false
         localError = message
 
         if (unbind) {
-            runCatching { Shizuku.unbindUserService(userServiceArgs(), connection, true) }
+            runCatching { gateway.unbindUserService(attemptId, true) }
         }
 
         scheduleReconnect()
@@ -217,20 +229,17 @@ class ShizukuFileClient(
         val index = consecutiveFailures.coerceAtMost(RETRY_DELAYS_MS.lastIndex)
         val delay = RETRY_DELAYS_MS[index]
         consecutiveFailures = (consecutiveFailures + 1).coerceAtMost(RETRY_DELAYS_MS.size)
-        retryNotBefore = SystemClock.elapsedRealtime() + delay
-
-        mainHandler.removeCallbacks(reconnectRunnable)
-        mainHandler.postDelayed(reconnectRunnable, delay)
+        scheduleBind(delay)
     }
 
-    private fun userServiceArgs(): Shizuku.UserServiceArgs = Shizuku.UserServiceArgs(
-        ComponentName(appContext.packageName, FileService::class.java.name),
-    ).daemon(false)
-        .processNameSuffix("file")
-        .debuggable(BuildConfig.DEBUG)
-        .version(BuildConfig.VERSION_CODE)
+    private fun cancelPendingTasks() {
+        pendingBind?.cancel()
+        pendingTimeout?.cancel()
+        pendingBind = null
+        pendingTimeout = null
+    }
 
-    private fun <T> call(fallback: T, block: (IFileService) -> T): T {
+    private fun <T> call(fallback: T, block: (UserServiceFiles) -> T): T {
         val current = service ?: return fallback
         return try {
             block(current).also { localError = "" }
@@ -244,9 +253,9 @@ class ShizukuFileClient(
 
     companion object {
         private const val REQUEST_CODE = 1001
-        private const val INITIAL_BIND_DELAY_MS = 300L
-        private const val BIND_TIMEOUT_MS = 10_000L
-        private val RETRY_DELAYS_MS = longArrayOf(500L, 1_500L, 4_000L, 8_000L)
+        internal const val INITIAL_BIND_DELAY_MS = 300L
+        internal const val BIND_TIMEOUT_MS = 10_000L
+        internal val RETRY_DELAYS_MS = longArrayOf(500L, 1_500L, 4_000L, 8_000L)
         const val MANAGER_PACKAGE = "moe.shizuku.privileged.api"
     }
 }
