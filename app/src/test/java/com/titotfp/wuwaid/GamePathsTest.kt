@@ -30,10 +30,7 @@ class GamePathsTest {
         fixture.readyVersion("3.5.0")
         fixture.readyVersion("3.5.1")
         fixture.officialSignature("3.5.1", "official-signature")
-        val externalPatch = File(fixture.appRoot, "patch/${ReleaseParser.PATCH_ASSET}").apply {
-            parentFile!!.mkdirs()
-            writeText("pak-indonesia")
-        }
+        val externalPatch = fixture.externalPatch("pak-indonesia")
         val old = fixture.paths.paths("3.5.0")
         File(old.directory).mkdirs()
         File(old.pak).writeText("old")
@@ -54,9 +51,82 @@ class GamePathsTest {
         assertTrue(unrelated.exists())
 
         val current = fixture.paths.paths("3.5.1")
-        val pakSha1 = fixture.files.sha1(current.pak).uppercase()
-        val sigSha1 = fixture.files.sha1(current.signature).uppercase()
+        val pakSha1 = fixture.engineFiles.sha1(current.pak).uppercase()
+        val sigSha1 = fixture.engineFiles.sha1(current.signature).uppercase()
         assertEquals(fixture.paths.mountContent(pakSha1, sigSha1), File(current.mount).readText())
+        fixture.assertNoTemporaryArtifacts("3.5.1")
+    }
+
+    @Test
+    fun hashMismatchPreservesExistingInstallationAndCleansStaging() {
+        val fixture = fixture()
+        fixture.readyVersion("3.5.1")
+        fixture.officialSignature("3.5.1", "new-official-signature")
+        val oldMount = fixture.seedHealthyInstall("3.5.1", "old-pak", "old-signature")
+        val externalPatch = fixture.externalPatch("new-pak")
+        val release = releaseFor(externalPatch, sha256 = "0".repeat(64))
+
+        val error = assertThrows(IllegalStateException::class.java) {
+            fixture.paths.install(externalPatch.path, release)
+        }
+
+        assertTrue(error.message.orEmpty().contains("SHA-256 berubah"))
+        fixture.assertInstalledContent("3.5.1", "old-pak", "old-signature", oldMount)
+        fixture.assertNoTemporaryArtifacts("3.5.1")
+    }
+
+    @Test
+    fun missingOfficialSignaturePreservesExistingInstallation() {
+        val fixture = fixture()
+        fixture.readyVersion("3.5.1")
+        val oldMount = fixture.seedHealthyInstall("3.5.1", "old-pak", "old-signature")
+        val externalPatch = fixture.externalPatch("new-pak")
+
+        val error = assertThrows(IllegalStateException::class.java) {
+            fixture.paths.install(externalPatch.path, releaseFor(externalPatch))
+        }
+
+        assertTrue(error.message.orEmpty().contains("Tidak menemukan file .sig resmi"))
+        fixture.assertInstalledContent("3.5.1", "old-pak", "old-signature", oldMount)
+        fixture.assertNoTemporaryArtifacts("3.5.1")
+    }
+
+    @Test
+    fun failedCommitRestoresExistingPakSignatureAndMount() {
+        val fixture = fixture(withFaults = true)
+        fixture.readyVersion("3.5.1")
+        fixture.officialSignature("3.5.1", "new-official-signature")
+        val oldMount = fixture.seedHealthyInstall("3.5.1", "old-pak", "old-signature")
+        val externalPatch = fixture.externalPatch("new-pak")
+        val target = fixture.paths.paths("3.5.1")
+        fixture.faults!!.failNextReplaceTo = target.mount
+
+        val error = assertThrows(IllegalStateException::class.java) {
+            fixture.paths.install(externalPatch.path, releaseFor(externalPatch))
+        }
+
+        assertTrue(error.message.orEmpty().contains("Tidak bisa memasang"))
+        fixture.assertInstalledContent("3.5.1", "old-pak", "old-signature", oldMount)
+        fixture.assertNoTemporaryArtifacts("3.5.1")
+    }
+
+    @Test
+    fun failedFirstInstallLeavesNoPartialOwnedArtifacts() {
+        val fixture = fixture(withFaults = true)
+        fixture.readyVersion("3.5.1")
+        fixture.officialSignature("3.5.1", "official-signature")
+        val externalPatch = fixture.externalPatch("new-pak")
+        val target = fixture.paths.paths("3.5.1")
+        fixture.faults!!.failNextReplaceTo = target.mount
+
+        assertThrows(IllegalStateException::class.java) {
+            fixture.paths.install(externalPatch.path, releaseFor(externalPatch))
+        }
+
+        assertFalse(File(target.pak).exists())
+        assertFalse(File(target.signature).exists())
+        assertFalse(File(target.mount).exists())
+        fixture.assertNoTemporaryArtifacts("3.5.1")
     }
 
     @Test
@@ -67,10 +137,7 @@ class GamePathsTest {
             parentFile!!.mkdirs()
             writeText("::Mount::\nwuwaviethoa/WuWaVH_99_P,99,A,B,,\n::Del::\n")
         }
-        val externalPatch = File(fixture.appRoot, "patch/${ReleaseParser.PATCH_ASSET}").apply {
-            parentFile!!.mkdirs()
-            writeText("pak")
-        }
+        val externalPatch = fixture.externalPatch("pak")
 
         val conflicts = fixture.paths.detectConflicts("3.5.1")
         assertTrue(conflicts.any { it.contains(mount.name) })
@@ -81,19 +148,83 @@ class GamePathsTest {
     }
 
     @Test
-    fun uninstallRemovesOnlyWuwaIdArtifacts() {
+    fun officialLanguageMountIsIgnoredUnlessItContainsLegacyVietnamPatch() {
+        val fixture = fixture()
+        fixture.readyVersion("3.5.1")
+        val officialMount = File(fixture.resources, "3.5.1/Mount/MountLang_en.txt").apply {
+            parentFile!!.mkdirs()
+            writeText("::Mount::\nOfficial/English,99,A,B,,\n::Del::\n")
+        }
+
+        assertTrue(fixture.paths.detectConflicts("3.5.1").isEmpty())
+
+        officialMount.writeText("::Mount::\nwuwaviethoa/WuWaVH_99_P,99,A,B,,\n::Del::\n")
+        assertTrue(
+            fixture.paths.detectConflicts("3.5.1")
+                .contains("Mount/MountLang_en.txt (WuWaVH lama)"),
+        )
+    }
+
+    @Test
+    fun inspectRequiresMatchingMountAndLatestHash() {
         val fixture = fixture()
         fixture.readyVersion("3.5.1")
         val target = fixture.paths.paths("3.5.1")
-        listOf(target.pak, target.signature, target.mount).forEach {
-            File(it).apply { parentFile!!.mkdirs(); writeText("owned") }
+        File(target.pak).apply { parentFile!!.mkdirs(); writeText("pak") }
+        File(target.signature).writeText("sig")
+        File(target.mount).apply { parentFile!!.mkdirs(); writeText("invalid mount") }
+        val exactRelease = releaseFor(File(target.pak))
+
+        val invalid = fixture.paths.inspect(exactRelease)
+        assertFalse(invalid.currentHealthy)
+        assertFalse(invalid.matchesLatest)
+        assertTrue(invalid.diagnostics.contains("Mount: tidak cocok"))
+
+        val correctMount = fixture.paths.mountContent(
+            fixture.engineFiles.sha1(target.pak).uppercase(),
+            fixture.engineFiles.sha1(target.signature).uppercase(),
+        )
+        File(target.mount).writeText(correctMount)
+
+        val healthyButOld = fixture.paths.inspect(
+            exactRelease.copy(sha256 = "f".repeat(64)),
+        )
+        assertTrue(healthyButOld.currentHealthy)
+        assertFalse(healthyButOld.matchesLatest)
+    }
+
+    @Test
+    fun uninstallRemovesOwnedInstalledStagedAndBackupArtifactsOnly() {
+        val fixture = fixture()
+        fixture.readyVersion("3.5.1")
+        val target = fixture.paths.paths("3.5.1")
+        val owned = listOf(
+            target.mount,
+            target.pak,
+            target.signature,
+            target.stagedPak,
+            "${target.signature}.new",
+            "${target.mount}.new",
+            "${target.stagedPak}.tmp",
+            "${target.signature}.new.tmp",
+            "${target.mount}.new.tmp",
+            "${target.pak}.bak",
+            "${target.signature}.bak",
+            "${target.mount}.bak",
+        )
+        owned.forEach { path ->
+            File(path).apply {
+                parentFile!!.mkdirs()
+                writeText("owned")
+            }
         }
         val other = File(fixture.resources, "3.5.1/othermod/keep.pak").apply {
             parentFile!!.mkdirs()
             writeText("keep")
         }
 
-        assertEquals(3, fixture.paths.uninstall())
+        assertEquals(owned.size, fixture.paths.uninstall())
+        assertTrue(owned.none { File(it).exists() })
         assertTrue(other.exists())
     }
 
@@ -105,23 +236,31 @@ class GamePathsTest {
         assertFalse(GamePaths.isHighPriorityMountLine("wuwa/base,1,A,B,,"))
     }
 
-    private fun fixture(): Fixture {
+    private fun fixture(withFaults: Boolean = false): Fixture {
         val root = temporary.newFolder("storage")
         val appRoot = File(root, "app").apply { mkdirs() }
         val gameRoot = File(root, "game").apply { mkdirs() }
         val resources = File(gameRoot, "Resources").apply { mkdirs() }
-        val files = EngineFiles(LocalFileEngine(listOf(appRoot, gameRoot)))
-        return Fixture(appRoot, resources, files, GamePaths(files, resources.path))
+        val engineFiles = EngineFiles(LocalFileEngine(listOf(appRoot, gameRoot)))
+        val faults = if (withFaults) FaultInjectingFiles(engineFiles) else null
+        val files: PrivilegedFiles = faults ?: engineFiles
+        return Fixture(
+            appRoot = appRoot,
+            resources = resources,
+            engineFiles = engineFiles,
+            faults = faults,
+            paths = GamePaths(files, resources.path),
+        )
     }
 
-    private fun releaseFor(file: File): PatchRelease = PatchRelease(
+    private fun releaseFor(file: File, sha256: String = file.hash("SHA-256")): PatchRelease = PatchRelease(
         tag = "v-test",
         title = "Test",
         publishedAt = "2026-07-18T00:00:00Z",
         notes = "Test",
         assetUrl = "https://example.invalid/${ReleaseParser.PATCH_ASSET}",
         size = file.length(),
-        sha256 = file.hash("SHA-256"),
+        sha256 = sha256,
     )
 
     private fun File.hash(algorithm: String): String = MessageDigest.getInstance(algorithm)
@@ -131,7 +270,8 @@ class GamePathsTest {
     private data class Fixture(
         val appRoot: File,
         val resources: File,
-        val files: EngineFiles,
+        val engineFiles: EngineFiles,
+        val faults: FaultInjectingFiles?,
         val paths: GamePaths,
     ) {
         fun readyVersion(version: String) {
@@ -144,6 +284,74 @@ class GamePathsTest {
                 writeText(content)
             }
         }
+
+        fun externalPatch(content: String): File = File(appRoot, "patch/${ReleaseParser.PATCH_ASSET}").apply {
+            parentFile!!.mkdirs()
+            writeText(content)
+        }
+
+        fun seedHealthyInstall(version: String, pak: String, signature: String): String {
+            val target = paths.paths(version)
+            File(target.pak).apply { parentFile!!.mkdirs(); writeText(pak) }
+            File(target.signature).writeText(signature)
+            val mount = paths.mountContent(
+                engineFiles.sha1(target.pak).uppercase(),
+                engineFiles.sha1(target.signature).uppercase(),
+            )
+            File(target.mount).apply { parentFile!!.mkdirs(); writeText(mount) }
+            return mount
+        }
+
+        fun assertInstalledContent(version: String, pak: String, signature: String, mount: String) {
+            val target = paths.paths(version)
+            assertEquals(pak, File(target.pak).readText())
+            assertEquals(signature, File(target.signature).readText())
+            assertEquals(mount, File(target.mount).readText())
+        }
+
+        fun assertNoTemporaryArtifacts(version: String) {
+            val target = paths.paths(version)
+            val temporaryPaths = listOf(
+                target.stagedPak,
+                "${target.signature}.new",
+                "${target.mount}.new",
+                "${target.stagedPak}.tmp",
+                "${target.signature}.new.tmp",
+                "${target.mount}.new.tmp",
+                "${target.pak}.bak",
+                "${target.signature}.bak",
+                "${target.mount}.bak",
+            )
+            assertTrue(temporaryPaths.none { File(it).exists() })
+        }
+    }
+
+    private class FaultInjectingFiles(
+        private val delegate: PrivilegedFiles,
+    ) : PrivilegedFiles {
+        var failNextReplaceTo: String? = null
+        private var error = ""
+
+        override fun copyFile(source: String, destination: String): Boolean = delegate.copyFile(source, destination)
+
+        override fun replaceFile(source: String, destination: String): Boolean {
+            if (destination == failNextReplaceTo) {
+                failNextReplaceTo = null
+                error = "kegagalan replace yang disimulasikan"
+                return false
+            }
+            return delegate.replaceFile(source, destination)
+        }
+
+        override fun deleteFile(path: String): Boolean = delegate.deleteFile(path)
+        override fun exists(path: String): Boolean = delegate.exists(path)
+        override fun mkdirs(path: String): Boolean = delegate.mkdirs(path)
+        override fun listFiles(path: String): Array<String> = delegate.listFiles(path)
+        override fun readText(path: String): String = delegate.readText(path)
+        override fun writeTextAtomic(path: String, content: String): Boolean = delegate.writeTextAtomic(path, content)
+        override fun sha1(path: String): String = delegate.sha1(path)
+        override fun sha256(path: String): String = delegate.sha256(path)
+        override fun lastError(): String = error.ifBlank(delegate::lastError)
     }
 
     private class EngineFiles(private val engine: LocalFileEngine) : PrivilegedFiles {
