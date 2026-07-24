@@ -3,6 +3,7 @@ package com.titotfp.wuwaid
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ReleaseParserTest {
@@ -13,7 +14,7 @@ class ReleaseParserTest {
 
         assertEquals("v3.5.1-id.3", release.tag)
         assertEquals(48_341_712L, release.size)
-        assertEquals("88eb1837d99208d4d3658e893a2e38559f05f957fcd6931df70dbf4cb8e2dad7", release.sha256)
+        assertEquals(HASH, release.sha256)
         assertEquals(
             "https://github.com/TitoTFP/WuwaID/releases/download/v3.5.1-id.3/${ReleaseParser.PATCH_ASSET}",
             release.assetUrl,
@@ -21,32 +22,70 @@ class ReleaseParserTest {
     }
 
     @Test
-    fun usesExactChecksumFallback() {
+    fun blankTitleFallsBackToTag() {
+        val parsed = ReleaseParser.parse(RELEASE_JSON.replace("Wuthering Waves Lokalisasi Bahasa Indonesia v.3.5.1-id.3", ""))
+
+        assertEquals("v3.5.1-id.3", parsed.title)
+    }
+
+    @Test
+    fun usesExactChecksumFallbackIncludingWildcardAndUppercaseHash() {
         val parsed = ReleaseParser.parse(RELEASE_JSON.replace(DIGEST_FIELD, ""))
         assertNull(parsed.digest)
         val sums = """
-            88eb1837d99208d4d3658e893a2e38559f05f957fcd6931df70dbf4cb8e2dad7  ${ReleaseParser.PATCH_ASSET}
+            ${HASH.uppercase()}  *${ReleaseParser.PATCH_ASSET}
             0fd4697de717ff701568307903ecd630498abb3c101eb9ad77eca34507b47765  winhttp.dll
         """.trimIndent()
 
         val release = ReleaseParser.finish(parsed, ReleaseParser.checksumForPatch(sums))
-        assertEquals("88eb1837d99208d4d3658e893a2e38559f05f957fcd6931df70dbf4cb8e2dad7", release.sha256)
+
+        assertEquals(HASH, release.sha256)
+    }
+
+    @Test
+    fun malformedEmbeddedDigestFallsBackInsteadOfBeingTrusted() {
+        val parsed = ReleaseParser.parse(RELEASE_JSON.replace(HASH, "not-a-valid-hash"))
+
+        assertNull(parsed.digest)
+        assertEquals(HASH, ReleaseParser.finish(parsed, HASH).sha256)
     }
 
     @Test
     fun rejectsReleaseWithoutExpectedAsset() {
         val wrong = RELEASE_JSON.replace(ReleaseParser.PATCH_ASSET, "WuWa_ID_99_P.pak")
+
         assertThrows(IllegalStateException::class.java) { ReleaseParser.parse(wrong) }
     }
 
     @Test
-    fun checksumParserDoesNotAcceptAnotherFilename() {
-        val sums = "88eb1837d99208d4d3658e893a2e38559f05f957fcd6931df70dbf4cb8e2dad7  other.pak"
-        assertNull(ReleaseParser.checksumForPatch(sums))
+    fun checksumParserDoesNotAcceptAnotherFilenameOrMalformedHash() {
+        assertNull(ReleaseParser.checksumForPatch("$HASH  other.pak"))
+        assertNull(ReleaseParser.checksumForPatch("not-a-hash  ${ReleaseParser.PATCH_ASSET}"))
+    }
+
+    @Test
+    fun finishRejectsMissingHashInsecureUrlAndInvalidSize() {
+        val parsed = ReleaseParser.parse(RELEASE_JSON.replace(DIGEST_FIELD, ""))
+
+        assertThrows(IllegalStateException::class.java) { ReleaseParser.finish(parsed) }
+        assertThrows(IllegalArgumentException::class.java) {
+            ReleaseParser.finish(parsed.copy(assetUrl = "http://example.invalid/patch"), HASH)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            ReleaseParser.finish(parsed.copy(size = 0), HASH)
+        }
+    }
+
+    @Test
+    fun normalizationKeepsChecksumMatchingCaseInsensitive() {
+        val parsed = ReleaseParser.parse(RELEASE_JSON)
+
+        assertTrue(ReleaseParser.finish(parsed).sha256.all { it.isDigit() || it in 'a'..'f' })
     }
 
     companion object {
-        private const val DIGEST_FIELD = "\"digest\":\"sha256:88eb1837d99208d4d3658e893a2e38559f05f957fcd6931df70dbf4cb8e2dad7\","
+        private const val HASH = "88eb1837d99208d4d3658e893a2e38559f05f957fcd6931df70dbf4cb8e2dad7"
+        private const val DIGEST_FIELD = "\"digest\":\"sha256:$HASH\","
         private val RELEASE_JSON = """
             {
               "tag_name":"v3.5.1-id.3",
