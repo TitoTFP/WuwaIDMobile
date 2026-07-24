@@ -2,7 +2,7 @@ package com.titotfp.wuwaid
 
 import android.content.Context
 
-class ShizukuFileClient internal constructor(
+internal class ShizukuFileClient internal constructor(
     private val gateway: ShizukuGateway,
     private val scheduler: TaskScheduler,
     private val onStateChanged: () -> Unit,
