@@ -67,7 +67,7 @@ class GamePaths(
     fun inspect(latest: PatchRelease?): InstallInspection {
         val version = resolveResourceVersion()
         val versions = resourceVersions()
-        val anyOwned = versions.any { files.exists(paths(it).pak) || files.exists(paths(it).mount) }
+        val anyOwned = versions.any { ownedArtifactPaths(paths(it)).any(files::exists) }
         if (version == null) {
             return InstallInspection(
                 resourceVersion = null,
@@ -124,7 +124,15 @@ class GamePaths(
         check(conflicts.isEmpty()) { "Patch lain terdeteksi: ${conflicts.joinToString()}" }
         val target = paths(version)
         check(files.mkdirs(target.directory)) { operationError("Tidak bisa membuat folder patch") }
-        files.deleteFile(target.stagedPak)
+
+        val stagedSignature = "${target.signature}.new"
+        val stagedMount = "${target.mount}.new"
+        val artifacts = listOf(
+            InstallArtifact(target = target.pak, staged = target.stagedPak, backup = "${target.pak}.bak"),
+            InstallArtifact(target = target.signature, staged = stagedSignature, backup = "${target.signature}.bak"),
+            InstallArtifact(target = target.mount, staged = stagedMount, backup = "${target.mount}.bak"),
+        )
+        cleanupTemporaryArtifacts(artifacts)
 
         try {
             check(files.copyFile(externalPatchPath, target.stagedPak)) {
@@ -137,30 +145,51 @@ class GamePaths(
 
             val officialSig = findOfficialSignature(version)
                 ?: error("Tidak menemukan file .sig resmi untuk dikloning")
-            val stagedSig = "${target.signature}.new"
-            files.deleteFile(stagedSig)
-            check(files.copyFile(officialSig, stagedSig)) { operationError("Tidak bisa mengkloning .sig") }
-            check(files.replaceFile(stagedSig, target.signature)) { operationError("Tidak bisa memasang .sig") }
+            check(files.copyFile(officialSig, stagedSignature)) {
+                operationError("Tidak bisa mengkloning .sig")
+            }
 
-            check(files.replaceFile(target.stagedPak, target.pak)) { operationError("Tidak bisa mengganti patch") }
-            val pakSha1 = files.sha1(target.pak).uppercase(Locale.ROOT)
-            val sigSha1 = files.sha1(target.signature).uppercase(Locale.ROOT)
-            check(pakSha1.isNotBlank() && sigSha1.isNotBlank()) { operationError("Tidak bisa menghitung hash mount") }
+            val pakSha1 = files.sha1(target.stagedPak).uppercase(Locale.ROOT)
+            val sigSha1 = files.sha1(stagedSignature).uppercase(Locale.ROOT)
+            check(pakSha1.isNotBlank() && sigSha1.isNotBlank()) {
+                operationError("Tidak bisa menghitung hash mount")
+            }
             val mount = mountContent(pakSha1, sigSha1)
-            check(files.writeTextAtomic(target.mount, mount)) { operationError("Tidak bisa menulis mount") }
-            check(normalize(files.readText(target.mount)) == mount) { "Verifikasi mount gagal" }
+            check(files.writeTextAtomic(stagedMount, mount)) {
+                operationError("Tidak bisa menyiapkan mount")
+            }
+            check(normalize(files.readText(stagedMount)) == mount) {
+                "Verifikasi mount sementara gagal"
+            }
+
+            backupCurrentArtifacts(artifacts)
+            commitArtifacts(artifacts)
+
+            check(files.sha256(target.pak).equals(release.sha256, ignoreCase = true)) {
+                "Verifikasi SHA-256 patch terpasang gagal"
+            }
+            check(normalize(files.readText(target.mount)) == mount) {
+                "Verifikasi mount gagal"
+            }
             cleanupOldVersions(version)
+        } catch (error: Throwable) {
+            val rollbackErrors = rollbackArtifacts(artifacts)
+            if (rollbackErrors.isNotEmpty()) {
+                throw IllegalStateException(
+                    "${error.message ?: error.javaClass.simpleName}; rollback gagal: ${rollbackErrors.joinToString()}",
+                    error,
+                )
+            }
+            throw error
         } finally {
-            files.deleteFile(target.stagedPak)
-            files.deleteFile("${target.signature}.new")
+            cleanupTemporaryArtifacts(artifacts)
         }
     }
 
     fun uninstall(): Int {
         var removed = 0
         for (version in resourceVersions()) {
-            val target = paths(version)
-            listOf(target.mount, target.pak, target.signature, target.stagedPak, "${target.signature}.new").forEach { path ->
+            for (path in ownedArtifactPaths(paths(version))) {
                 if (files.exists(path) && files.deleteFile(path)) removed++
             }
         }
@@ -209,11 +238,77 @@ class GamePaths(
         return null
     }
 
+    private fun backupCurrentArtifacts(artifacts: List<InstallArtifact>) {
+        for (artifact in artifacts) {
+            artifact.hadOriginal = files.exists(artifact.target)
+            check(files.deleteFile(artifact.backup)) {
+                operationError("Tidak bisa membersihkan backup ${artifact.target}")
+            }
+            if (artifact.hadOriginal) {
+                check(files.replaceFile(artifact.target, artifact.backup)) {
+                    operationError("Tidak bisa membuat backup ${artifact.target}")
+                }
+                artifact.backedUp = true
+            }
+        }
+    }
+
+    private fun commitArtifacts(artifacts: List<InstallArtifact>) {
+        for (artifact in artifacts) {
+            check(files.replaceFile(artifact.staged, artifact.target)) {
+                operationError("Tidak bisa memasang ${artifact.target}")
+            }
+            artifact.installed = true
+        }
+    }
+
+    private fun rollbackArtifacts(artifacts: List<InstallArtifact>): List<String> {
+        val errors = mutableListOf<String>()
+        for (artifact in artifacts.asReversed()) {
+            if (artifact.installed && files.exists(artifact.target) && !files.deleteFile(artifact.target)) {
+                errors += "hapus ${artifact.target}"
+            }
+            if (artifact.backedUp) {
+                if (files.exists(artifact.target) && !files.deleteFile(artifact.target)) {
+                    errors += "bersihkan ${artifact.target}"
+                    continue
+                }
+                if (!files.replaceFile(artifact.backup, artifact.target)) {
+                    errors += "pulihkan ${artifact.target}"
+                }
+            }
+        }
+        return errors
+    }
+
+    private fun cleanupTemporaryArtifacts(artifacts: List<InstallArtifact>) {
+        artifacts.flatMap { artifact ->
+            listOf(artifact.staged, "${artifact.staged}.tmp", artifact.backup)
+        }.distinct().forEach(files::deleteFile)
+    }
+
+    private fun ownedArtifactPaths(target: PatchPaths): List<String> {
+        val stagedSignature = "${target.signature}.new"
+        val stagedMount = "${target.mount}.new"
+        return listOf(
+            target.mount,
+            target.pak,
+            target.signature,
+            target.stagedPak,
+            stagedSignature,
+            stagedMount,
+            "${target.stagedPak}.tmp",
+            "$stagedSignature.tmp",
+            "$stagedMount.tmp",
+            "${target.pak}.bak",
+            "${target.signature}.bak",
+            "${target.mount}.bak",
+        )
+    }
+
     private fun cleanupOldVersions(currentVersion: String) {
         for (version in resourceVersions().filterNot { it == currentVersion }) {
-            val target = paths(version)
-            listOf(target.mount, target.pak, target.signature, target.stagedPak, "${target.signature}.new")
-                .forEach(files::deleteFile)
+            ownedArtifactPaths(paths(version)).forEach(files::deleteFile)
         }
     }
 
@@ -221,6 +316,15 @@ class GamePaths(
         val detail = files.lastError()
         return if (detail.isBlank()) prefix else "$prefix: $detail"
     }
+
+    private data class InstallArtifact(
+        val target: String,
+        val staged: String,
+        val backup: String,
+        var hadOriginal: Boolean = false,
+        var backedUp: Boolean = false,
+        var installed: Boolean = false,
+    )
 
     companion object {
         const val GAME_PACKAGE = "com.kurogame.wutheringwaves.global"
