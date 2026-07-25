@@ -2,10 +2,12 @@
 
 Launcher Android untuk memasang patch Bahasa Indonesia Wuthering Waves Global melalui Shizuku.
 
-## Fitur v0.1.0
+## Fitur v0.2.0
 
 - Membaca patch terbaru dari GitHub Releases [`TitoTFP/WuwaID`](https://github.com/TitoTFP/WuwaID).
 - Memverifikasi ukuran dan SHA-256 sebelum menulis file ke folder game.
+- Memulihkan koneksi UserService otomatis setelah timeout, binder mati, atau Shizuku dimulai ulang.
+- Memasang PAK, SIG, dan mount secara transaksional dengan rollback jika commit gagal.
 - Memasang, memperbarui, memeriksa, dan menghapus hanya artefak milik WuwaID Mobile.
 - Mengkloning `.sig` resmi game dan membuat mount manifest dengan hash SHA-1.
 - Memblokir patch Vietnam atau mount custom berprioritas tinggi tanpa menghapusnya.
@@ -58,7 +60,7 @@ Jangan commit keystore atau password. Alias resmi aplikasi: `wuwaid-mobile`.
 - Uninstall; hanya `wuwaindonesia/WuWaID_99_P.*` dan `Mount/wuwaindonesia.txt` yang hilang.
 - Saat rilis aplikasi lebih baru tersedia, pastikan APK lolos verifikasi dan installer Android meminta konfirmasi update.
 
-Rilis `v0.1.0` tetap prerelease sampai skenario di atas lulus pada perangkat nyata.
+Rilis `v0.2.0` sudah melewati skenario Shizuku, instalasi, restart, dan uninstall pada perangkat nyata.
 
 ## Kredit dan lisensi
 
