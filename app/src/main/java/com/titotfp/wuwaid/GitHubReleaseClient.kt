@@ -1,13 +1,55 @@
 package com.titotfp.wuwaid
 
 import java.io.BufferedInputStream
+import java.io.Closeable
 import java.io.File
 import java.io.FileOutputStream
+import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
 
-class GitHubReleaseClient {
+internal interface ReleaseHttpResponse : Closeable {
+    fun openStream(): InputStream
+}
+
+internal fun interface ReleaseHttpTransport {
+    fun open(url: String, githubApi: Boolean): ReleaseHttpResponse
+}
+
+internal class UrlConnectionReleaseHttpTransport : ReleaseHttpTransport {
+    override fun open(url: String, githubApi: Boolean): ReleaseHttpResponse {
+        require(url.startsWith("https://")) { "URL wajib HTTPS" }
+        val connection = URL(url).openConnection() as HttpURLConnection
+        connection.instanceFollowRedirects = true
+        connection.connectTimeout = 30_000
+        connection.readTimeout = 30 * 60_000
+        connection.setRequestProperty("User-Agent", "WuwaID-Mobile/${BuildConfig.VERSION_NAME}")
+        if (githubApi) connection.setRequestProperty("Accept", "application/vnd.github+json")
+        connection.connect()
+
+        val responseCode = connection.responseCode
+        if (responseCode !in 200..299) {
+            connection.disconnect()
+            error("HTTP $responseCode saat mengakses GitHub")
+        }
+        if (!connection.url.protocol.equals("https", ignoreCase = true)) {
+            connection.disconnect()
+            error("Redirect non-HTTPS ditolak")
+        }
+
+        return object : ReleaseHttpResponse {
+            override fun openStream(): InputStream = connection.inputStream
+            override fun close() = connection.disconnect()
+        }
+    }
+}
+
+class GitHubReleaseClient internal constructor(
+    private val transport: ReleaseHttpTransport,
+) {
+    constructor() : this(UrlConnectionReleaseHttpTransport())
+
     fun fetchLatest(): PatchRelease {
         val parsed = ReleaseParser.parse(getText(LATEST_RELEASE_URL, githubApi = true))
         val fallback = if (parsed.digest == null) {
@@ -66,68 +108,43 @@ class GitHubReleaseClient {
         require(destination.name.endsWith(".part")) { "Unduhan harus memakai file .part" }
         destination.parentFile?.mkdirs()
         destination.delete()
-        val connection = open(url)
+
         try {
-            val digest = MessageDigest.getInstance("SHA-256")
-            var downloaded = 0L
-            BufferedInputStream(connection.inputStream, BUFFER_SIZE).use { input ->
-                FileOutputStream(destination).use { output ->
-                    val buffer = ByteArray(BUFFER_SIZE)
-                    while (true) {
-                        val count = input.read(buffer)
-                        if (count < 0) break
-                        output.write(buffer, 0, count)
-                        digest.update(buffer, 0, count)
-                        downloaded += count
-                        progress(downloaded, size)
+            transport.open(url, githubApi = false).use { response ->
+                val digest = MessageDigest.getInstance("SHA-256")
+                var downloaded = 0L
+                BufferedInputStream(response.openStream(), BUFFER_SIZE).use { input ->
+                    FileOutputStream(destination).use { output ->
+                        val buffer = ByteArray(BUFFER_SIZE)
+                        while (true) {
+                            val count = input.read(buffer)
+                            if (count < 0) break
+                            output.write(buffer, 0, count)
+                            digest.update(buffer, 0, count)
+                            downloaded += count
+                            progress(downloaded, size)
+                        }
+                        output.fd.sync()
                     }
-                    output.fd.sync()
                 }
-            }
-            check(downloaded == size) {
-                "Ukuran $label tidak cocok: $downloaded dari $size byte"
-            }
-            val actual = digest.digest().toHex()
-            check(actual.equals(sha256, ignoreCase = true)) {
-                "SHA-256 $label tidak cocok"
+                check(downloaded == size) {
+                    "Ukuran $label tidak cocok: $downloaded dari $size byte"
+                }
+                val actual = digest.digest().toHex()
+                check(actual.equals(sha256, ignoreCase = true)) {
+                    "SHA-256 $label tidak cocok"
+                }
             }
         } catch (error: Throwable) {
             destination.delete()
             throw error
-        } finally {
-            connection.disconnect()
         }
     }
 
-    private fun getText(url: String, githubApi: Boolean = false): String {
-        val connection = open(url, githubApi)
-        return try {
-            connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
-        } finally {
-            connection.disconnect()
+    private fun getText(url: String, githubApi: Boolean = false): String =
+        transport.open(url, githubApi).use { response ->
+            response.openStream().bufferedReader(Charsets.UTF_8).use { it.readText() }
         }
-    }
-
-    private fun open(url: String, githubApi: Boolean = false): HttpURLConnection {
-        require(url.startsWith("https://")) { "URL wajib HTTPS" }
-        val connection = URL(url).openConnection() as HttpURLConnection
-        connection.instanceFollowRedirects = true
-        connection.connectTimeout = 30_000
-        connection.readTimeout = 30 * 60_000
-        connection.setRequestProperty("User-Agent", "WuwaID-Mobile/${BuildConfig.VERSION_NAME}")
-        if (githubApi) connection.setRequestProperty("Accept", "application/vnd.github+json")
-        connection.connect()
-        val responseCode = connection.responseCode
-        if (responseCode !in 200..299) {
-            connection.disconnect()
-            error("HTTP $responseCode saat mengakses GitHub")
-        }
-        if (!connection.url.protocol.equals("https", ignoreCase = true)) {
-            connection.disconnect()
-            error("Redirect non-HTTPS ditolak")
-        }
-        return connection
-    }
 
     private fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it.toInt() and 0xff) }
 

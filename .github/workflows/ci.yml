@@ -11,6 +11,8 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+
     steps:
       - uses: actions/checkout@v4
 
@@ -26,5 +28,79 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      - name: Test, lint, and build debug APK
-        run: ./gradlew --no-daemon test lint assembleDebug
+      - name: Run unit tests and coverage
+        run: ./gradlew --no-daemon testDebugUnitTest jacocoTestReport
+
+      - name: Run Android lint
+        run: ./gradlew --no-daemon lintDebug
+
+      - name: Build debug APK
+        run: ./gradlew --no-daemon assembleDebug
+
+      - name: Publish coverage summary
+        if: always() && hashFiles('app/build/reports/jacoco/jacocoTestReport/jacocoTestReport.xml') != ''
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os
+          import xml.etree.ElementTree as ET
+
+          report = "app/build/reports/jacoco/jacocoTestReport/jacocoTestReport.xml"
+          root = ET.parse(report).getroot()
+          counters = {counter.attrib["type"]: counter.attrib for counter in root.findall("counter")}
+
+          def percentage(kind: str) -> str:
+              values = counters.get(kind)
+              if not values:
+                  return "n/a"
+              missed = int(values["missed"])
+              covered = int(values["covered"])
+              total = missed + covered
+              return "100.00%" if total == 0 else f"{covered / total * 100:.2f}%"
+
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+              summary.write("## Unit test coverage\n\n")
+              summary.write("| Metric | Coverage |\n")
+              summary.write("|---|---:|\n")
+              summary.write(f"| Lines | {percentage('LINE')} |\n")
+              summary.write(f"| Branches | {percentage('BRANCH')} |\n")
+              summary.write(f"| Instructions | {percentage('INSTRUCTION')} |\n")
+          PY
+
+      - name: Upload unit test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-reports
+          path: |
+            app/build/test-results/testDebugUnitTest/**/*.xml
+            app/build/reports/tests/testDebugUnitTest/**
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-coverage
+          path: app/build/reports/jacoco/jacocoTestReport/**
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload lint report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-lint-report
+          path: app/build/reports/lint-results-debug.*
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload debug APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wuwaid-mobile-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14

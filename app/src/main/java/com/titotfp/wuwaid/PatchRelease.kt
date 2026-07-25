@@ -39,10 +39,11 @@ object ReleaseParser {
             .removePrefix("sha256:")
             .takeIf(sha256Regex::matches)
             ?.lowercase()
+        val tag = root.getString("tag_name")
 
         return ParsedRelease(
-            tag = root.getString("tag_name"),
-            title = root.optString("name", root.getString("tag_name")),
+            tag = tag,
+            title = root.optString("name").ifBlank { tag },
             publishedAt = root.optString("published_at"),
             notes = root.optString("body"),
             assetUrl = patch.getString("browser_download_url"),
