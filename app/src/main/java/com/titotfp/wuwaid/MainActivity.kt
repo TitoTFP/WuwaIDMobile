@@ -21,7 +21,11 @@ import java.util.concurrent.atomic.AtomicInteger
 class MainActivity : Activity() {
     private lateinit var binding: ActivityMainBinding
     private lateinit var shizuku: ShizukuFileClient
+    private lateinit var root: RootFileClient
     private lateinit var releaseStore: ReleaseStore
+
+    @Volatile
+    private var rootActive = false
     private val executor = Executors.newSingleThreadExecutor()
     private val releaseClient = GitHubReleaseClient()
     private val refreshGeneration = AtomicInteger()
@@ -56,6 +60,7 @@ class MainActivity : Activity() {
         shizuku = ShizukuFileClient(this) {
             runOnUiThread { refresh(fetchNetwork = false) }
         }
+        root = RootFileClient(this)
 
         binding.primaryButton.setOnClickListener { performPrimaryAction() }
         binding.refreshButton.setOnClickListener { refresh(fetchNetwork = true) }
@@ -114,13 +119,15 @@ class MainActivity : Activity() {
                 }
             }
 
-            val available = shizuku.isAvailable()
-            val permission = available && shizuku.hasPermission()
-            val serviceReady = permission && shizuku.isReady()
-            if (permission && !serviceReady) runOnUiThread { shizuku.bind() }
+            if (fetchNetwork || (rootActive && root.lastError().isNotBlank())) root.invalidateProbe()
+            rootActive = root.isAvailable()
+            val available = rootActive || shizuku.isAvailable()
+            val permission = rootActive || (available && shizuku.hasPermission())
+            val serviceReady = rootActive || (permission && shizuku.isReady())
+            if (!rootActive && permission && !serviceReady) runOnUiThread { shizuku.bind() }
 
             val inspection = if (serviceReady) {
-                runCatching { GamePaths(shizuku).inspect(release) }.getOrElse { error ->
+                runCatching { GamePaths(privilegedFiles(), backendLabel = backendLabel()).inspect(release) }.getOrElse { error ->
                     if (generation == refreshGeneration.get()) {
                         runOnUiThread { renderError(readableError(error)) }
                     }
@@ -147,9 +154,13 @@ class MainActivity : Activity() {
                 appUpdate?.let { add("Update aplikasi: ${it.tag} (${formatBytes(it.size)})") }
                 if (appUpdate == null && updateChecked) add("Update aplikasi: versi terbaru")
                 if (appUpdateMessage.isNotBlank()) add(appUpdateMessage)
-                add("Shizuku: ${shizukuSummary(available, permission, serviceReady)}")
-                if (shizuku.isBinding()) add("UserService: sedang menghubungkan")
-                shizuku.lastError().takeIf(String::isNotBlank)?.let { add("File service: $it") }
+                if (rootActive) {
+                    add("Root: siap")
+                } else {
+                    add("Shizuku: ${shizukuSummary(available, permission, serviceReady)}")
+                    if (shizuku.isBinding()) add("UserService: sedang menghubungkan")
+                }
+                privilegedFiles().lastError().takeIf(String::isNotBlank)?.let { add("File service: $it") }
                 addAll(inspection?.diagnostics.orEmpty())
                 release?.let {
                     add("Release: ${it.tag}")
@@ -180,7 +191,10 @@ class MainActivity : Activity() {
             LauncherStatus.GAME_NOT_READY, LauncherStatus.READY -> launchGame()
             LauncherStatus.NOT_INSTALLED, LauncherStatus.UPDATE_AVAILABLE -> installPatch()
             LauncherStatus.CONFLICT -> toast("Lepas patch yang tercantum pada diagnostik terlebih dahulu")
-            LauncherStatus.ERROR -> refresh(fetchNetwork = true)
+            LauncherStatus.ERROR -> {
+                root.invalidateProbe()
+                refresh(fetchNetwork = true)
+            }
             LauncherStatus.BUSY -> Unit
         }
     }
@@ -191,6 +205,7 @@ class MainActivity : Activity() {
             !shizuku.hasPermission() -> shizuku.requestPermission()
             else -> shizuku.bind()
         }
+        root.invalidateProbe()
         refresh(fetchNetwork = false)
     }
 
@@ -201,7 +216,7 @@ class MainActivity : Activity() {
             refresh(fetchNetwork = true)
             return
         }
-        if (!shizuku.isReady()) {
+        if (!rootActive && !shizuku.isReady()) {
             currentStatus = LauncherStatus.NEEDS_SHIZUKU
             handleShizukuAction()
             return
@@ -230,9 +245,9 @@ class MainActivity : Activity() {
                     }
                 }
                 runOnUiThread {
-                    renderBusy("Sedang memasang patch", "Memasang patch melalui Shizuku…", 100)
+                    renderBusy("Sedang memasang patch", "Memasang patch melalui ${backendLabel()}…", 100)
                 }
-                GamePaths(shizuku).install(partial.absolutePath, release)
+                GamePaths(privilegedFiles(), backendLabel = backendLabel()).install(partial.absolutePath, release)
                 partial.delete()
                 busy = false
                 runOnUiThread {
@@ -394,7 +409,7 @@ class MainActivity : Activity() {
     }
 
     private fun uninstallPatch() {
-        if (!shizuku.isReady()) {
+        if (!rootActive && !shizuku.isReady()) {
             handleShizukuAction()
             return
         }
@@ -403,7 +418,7 @@ class MainActivity : Activity() {
         renderBusy("Sedang menghapus patch", "Menghapus file WuwaID…", 0)
         executor.execute {
             try {
-                val removed = GamePaths(shizuku).uninstall()
+                val removed = GamePaths(privilegedFiles(), backendLabel = backendLabel()).uninstall()
                 busy = false
                 runOnUiThread {
                     toast("Patch dihapus ($removed file)")
@@ -580,6 +595,10 @@ class MainActivity : Activity() {
         toast(message)
         renderError(message)
     }
+
+    private fun privilegedFiles(): PrivilegedFiles = if (rootActive) root else shizuku
+
+    private fun backendLabel(): String = if (rootActive) "Root" else "Shizuku"
 
     private fun shizukuSummary(available: Boolean, permission: Boolean, ready: Boolean): String = when {
         !available -> "tidak berjalan"
