@@ -2,7 +2,7 @@
 
 Launcher Android untuk memasang patch Bahasa Indonesia Wuthering Waves Global melalui root atau Shizuku.
 
-## Fitur v0.2.0
+## Fitur v0.3.0
 
 - Membaca patch terbaru dari GitHub Releases [`TitoTFP/WuwaID`](https://github.com/TitoTFP/WuwaID).
 - Memverifikasi ukuran dan SHA-256 sebelum menulis file ke folder game.
