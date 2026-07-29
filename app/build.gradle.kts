@@ -25,6 +25,15 @@ android {
         versionName = "0.2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        ndkVersion = "27.0.12077973"
+        ndk {
+            abiFilters += listOf("arm64-v8a")
+        }
+        externalNativeBuild {
+            cmake {
+                cppFlags += listOf("-std=c++20", "-Wall", "-Wextra", "-Werror")
+            }
+        }
     }
 
     signingConfigs {
@@ -42,8 +51,14 @@ android {
         debug {
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
+            externalNativeBuild {
+                cmake.arguments += "-DWUWA_APP_PACKAGE=com.titotfp.wuwaid.debug"
+            }
         }
         release {
+            externalNativeBuild {
+                cmake.arguments += "-DWUWA_APP_PACKAGE=com.titotfp.wuwaid"
+            }
             isMinifyEnabled = false
             isShrinkResources = false
             signingConfig = signingConfigs.findByName("release")
@@ -55,6 +70,13 @@ android {
         aidl = true
         buildConfig = true
         viewBinding = true
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
     }
 
     compileOptions {
@@ -71,6 +93,7 @@ android {
     }
 
     packaging {
+        jniLibs.useLegacyPackaging = true
         resources.excludes += setOf("META-INF/AL2.0", "META-INF/LGPL2.1")
     }
 }
@@ -95,21 +118,24 @@ tasks.register<JacocoReport>("jacocoTestReport") {
         csv.required.set(false)
     }
 
-    val generatedClassExcludes = listOf(
-        "**/R.class",
-        "**/R$*.class",
-        "**/BuildConfig.*",
-        "**/Manifest*.*",
-        "**/*Test*.*",
-        "**/IFileService*.*",
-        "**/*Binding*.*",
-    )
-    val kotlinClasses = fileTree(layout.buildDirectory.dir("tmp/kotlin-classes/debug")) {
-        exclude(generatedClassExcludes)
-    }
-    val javaClasses = fileTree(layout.buildDirectory.dir("intermediates/javac/debug/classes")) {
-        exclude(generatedClassExcludes)
-    }
+    val generatedClassExcludes =
+        listOf(
+            "**/R.class",
+            "**/R$*.class",
+            "**/BuildConfig.*",
+            "**/Manifest*.*",
+            "**/*Test*.*",
+            "**/IFileService*.*",
+            "**/*Binding*.*",
+        )
+    val kotlinClasses =
+        fileTree(layout.buildDirectory.dir("tmp/kotlin-classes/debug")) {
+            exclude(generatedClassExcludes)
+        }
+    val javaClasses =
+        fileTree(layout.buildDirectory.dir("intermediates/javac/debug/classes")) {
+            exclude(generatedClassExcludes)
+        }
 
     classDirectories.setFrom(files(kotlinClasses, javaClasses))
     sourceDirectories.setFrom(files("src/main/java", "src/main/kotlin"))
@@ -126,4 +152,6 @@ dependencies {
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test:runner:1.6.2")
 }

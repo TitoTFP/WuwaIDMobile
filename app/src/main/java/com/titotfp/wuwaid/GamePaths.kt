@@ -41,6 +41,7 @@ data class InstallInspection(
 class GamePaths(
     private val files: PrivilegedFiles,
     private val resourcesRoot: String = RESOURCES_ROOT,
+    private val backendLabel: String = "Shizuku",
 ) {
     fun resourceVersions(): List<String> = files.listFiles(resourcesRoot)
         .filter { SemVer.parse(it) != null }
@@ -97,7 +98,7 @@ class GamePaths(
         val healthy = pakExists && sigExists && mountExists && expectedMount == actualMount
 
         val diagnostics = buildList {
-            add("Shizuku file service: siap")
+            add("$backendLabel file service: siap")
             add("Game package: $GAME_PACKAGE")
             add("Resource version: $version")
             add("PAK: ${if (pakExists) "ada" else "tidak ada"}")
