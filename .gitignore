@@ -8,6 +8,12 @@ app/build/
 *.keystore
 signing.properties
 
+# Local development and agent artifacts.
+.codegraph/
+.pi-subagents/
+PLAN.md
+app/.cxx/
+
 # Reverse-engineering inputs stay local.
 bin/
 decompiled/

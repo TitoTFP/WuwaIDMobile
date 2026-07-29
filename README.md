@@ -1,44 +1,68 @@
+<div align="center">
+  <img src="app/src/main/res/drawable-nodpi/app_icon.png" width="112" alt="WuwaID Mobile">
+
 # WuwaID Mobile
 
-Launcher Android untuk memasang patch Bahasa Indonesia Wuthering Waves Global melalui root atau Shizuku.
+  **Pasang patch Bahasa Indonesia Wuthering Waves langsung dari Android.**
 
-## Fitur v0.3.0
+  Root • Shizuku • Verifikasi checksum • Instalasi transaksional
 
-- Membaca patch terbaru dari GitHub Releases [`TitoTFP/WuwaID`](https://github.com/TitoTFP/WuwaID).
-- Memverifikasi ukuran dan SHA-256 sebelum menulis file ke folder game.
-- Memulihkan koneksi UserService otomatis setelah timeout, binder mati, atau Shizuku dimulai ulang.
-- Memasang PAK, SIG, dan mount secara transaksional dengan rollback jika commit gagal.
-- Memasang, memperbarui, memeriksa, dan menghapus hanya artefak milik WuwaID Mobile.
-- Mengkloning `.sig` resmi game dan membuat mount manifest dengan hash SHA-1.
-- Memblokir patch Vietnam atau mount custom berprioritas tinggi tanpa menghapusnya.
-- Memakai root langsung pada perangkat rooted, dengan fallback Shizuku.
-- Membatasi helper root ke folder game/aplikasi memakai operasi descriptor-relative tanpa mengikuti symlink.
-- Menampilkan status backend, resource game, hash patch, dan catatan rilis.
-- Memeriksa update WuwaID Mobile, memverifikasi APK, lalu membuka konfirmasi installer Android.
+  [Unduh APK](https://github.com/TitoTFP/WuwaIDMobile/releases/latest) · [Patch WuwaID](https://github.com/TitoTFP/WuwaID)
+</div>
 
-Tidak ada NTE, custom font, media bergerak, analytics, log server, atau instalasi patch otomatis.
+## Tentang
 
-## Persyaratan pengguna
+WuwaID Mobile adalah launcher Android komunitas untuk memasang, memperbarui, memeriksa, dan menghapus patch Bahasa Indonesia pada Wuthering Waves Global. Aplikasi mengambil patch resmi WuwaID dari GitHub Releases, memverifikasinya, lalu menulis file melalui root atau Shizuku.
 
-1. Wuthering Waves Global (`com.kurogame.wutheringwaves.global`).
-2. Salah satu akses privileged berikut:
-   - perangkat root dengan ABI `arm64-v8a` dan izin root untuk WuwaID Mobile; atau
-   - Shizuku terpasang, aktif, dan memberi izin ke WuwaID Mobile.
-3. Data game sudah selesai diunduh.
-4. Game ditutup saat patch dipasang atau diperbarui.
-5. Izin "Instal aplikasi tidak dikenal" hanya diperlukan saat memperbarui WuwaID Mobile.
+## Fitur utama
 
-## Build
+- **Root atau Shizuku** — root dipakai langsung bila tersedia, dengan fallback ke Shizuku.
+- **Instalasi aman** — ukuran dan SHA-256 diverifikasi sebelum file dipasang.
+- **Transaksional** — PAK, SIG, dan mount dipasang dengan backup serta rollback jika proses gagal.
+- **Status jelas** — menampilkan backend aktif, versi resource, hash patch, konflik, dan rilis terbaru.
+- **Pemulihan otomatis** — koneksi Shizuku pulih setelah timeout, binder mati, atau service dimulai ulang.
+- **Update aplikasi** — APK pembaruan diverifikasi sebelum installer Android dibuka.
+- **Root helper terbatas** — akses dibatasi ke direktori aplikasi/game dan tidak mengikuti symlink.
 
-Butuh JDK 17, Android SDK 35, NDK, dan CMake 3.22.1.
+## Persyaratan
 
-Setiap rilis aplikasi baru wajib menaikkan `versionCode`; `versionName` harus cocok dengan tag tanpa awalan `v`.
+- Wuthering Waves Global (`com.kurogame.wutheringwaves.global`).
+- Android dengan ABI `arm64-v8a`.
+- Salah satu akses berikut:
+  - root dan izin root untuk WuwaID Mobile; atau
+  - Shizuku aktif dengan izin untuk WuwaID Mobile.
+- Data game sudah selesai diunduh.
+
+## Instalasi
+
+1. Unduh APK terbaru dari [GitHub Releases](https://github.com/TitoTFP/WuwaIDMobile/releases/latest).
+2. Pasang dan buka WuwaID Mobile.
+3. Berikan izin root atau Shizuku.
+4. Tutup Wuthering Waves.
+5. Tekan tombol instal/perbarui patch.
+6. Jalankan game setelah status menunjukkan patch siap.
+
+> Selalu tutup game saat memasang, memperbarui, atau menghapus patch.
+
+## Build dari source
+
+Butuh JDK 17, Android SDK 35, NDK `27.0.12077973`, dan CMake 3.22.1.
 
 ```bash
+git clone https://github.com/TitoTFP/WuwaIDMobile.git
+cd WuwaIDMobile
 ./gradlew test lint assembleDebug
 ```
 
-Release signing membaca empat environment variable:
+APK debug tersedia di:
+
+```text
+app/build/outputs/apk/debug/app-debug.apk
+```
+
+### Release build
+
+Release signing memakai environment variable berikut:
 
 ```text
 ANDROID_KEYSTORE_PATH
@@ -51,26 +75,25 @@ ANDROID_KEY_PASSWORD
 ./gradlew clean test lint assembleRelease
 ```
 
-Jangan commit keystore atau password. Alias resmi aplikasi: `wuwaid-mobile`.
+Setiap rilis wajib menaikkan `versionCode`. `versionName` harus sama dengan tag tanpa awalan `v`.
 
-## Uji perangkat sebelum prerelease
+## Pengujian
 
-- Shizuku mati, izin ditolak, izin diterima, dan UserService tersambung.
-- Game belum terpasang dan resource belum selesai.
-- Instal latest patch, cocokkan PAK/SIG/mount dan pastikan game tampil Bahasa Indonesia.
-- Restart aplikasi; status harus `Siap dimainkan`.
-- Simulasikan unduhan terputus; patch lama harus tetap utuh.
-- Pasang artefak Vietnam; instalasi WuwaID harus diblokir tanpa menghapusnya.
-- Uninstall; hanya `wuwaindonesia/WuWaID_99_P.*` dan `Mount/wuwaindonesia.txt` yang hilang.
-- Saat rilis aplikasi lebih baru tersedia, pastikan APK lolos verifikasi dan installer Android meminta konfirmasi update.
+```bash
+./gradlew test lint
+python3 app/src/test/native/root_helper_security_test.py
+```
 
-Rilis `v0.2.0` sudah melewati skenario Shizuku, instalasi, restart, dan uninstall pada perangkat nyata.
+CI juga membangun APK debug, memeriksa packaged root helper, dan menerbitkan laporan test, coverage, serta lint.
 
-## Kredit dan lisensi
+## Kredit
 
-- Patch: [TitoTFP/WuwaID](https://github.com/TitoTFP/WuwaID)
-- Referensi metode Android: CallMeDangDev/WuwaVHLauncher dan APK DangDevVH
+- Patch Bahasa Indonesia: [TitoTFP/WuwaID](https://github.com/TitoTFP/WuwaID)
 - Shizuku: [RikkaApps/Shizuku](https://github.com/RikkaApps/Shizuku)
-- Branding diambil dari WuwaIDLauncher milik proyek yang sama.
+- Referensi metode Android: CallMeDangDev/WuwaVHLauncher dan APK DangDevVH
 
-Kode dirilis dengan GNU GPL v3. WuwaID merupakan mod komunitas tidak resmi dan tidak berafiliasi dengan Kuro Games.
+## Lisensi
+
+Dirilis di bawah [GNU General Public License v3.0](LICENSE).
+
+WuwaID adalah proyek komunitas tidak resmi dan tidak berafiliasi dengan Kuro Games.
