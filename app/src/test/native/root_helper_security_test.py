@@ -21,7 +21,7 @@ def request(helper, root, op, fields=(), fallback=False):
     env = dict(os.environ, WUWA_TEST_ROOT=str(root))
     if fallback:
         env["WUWA_FORCE_OPENAT_FALLBACK"] = "1"
-    result = subprocess.run([helper, "--stdio"], input=frame, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    result = subprocess.run([helper, "--stdio"], input=frame, capture_output=True,
                             env=env, timeout=5, check=False)
     assert len(result.stdout) >= 16, (result.returncode, result.stdout, result.stderr)
     magic, version, status, error, size = struct.unpack(">IHHII", result.stdout[:16])
@@ -54,6 +54,7 @@ def run_mode(helper, fallback):
             assert request(helper, root, "delete", [fifo], fallback)[0] == 1
 
             ok(request(helper, root, "mkdirs", [root / "a" / "b"], fallback))
+            assert ok(request(helper, root, "exists", [root / "a" / "b"], fallback)) == b"\x01"
             ok(request(helper, root, "copy", [source, root / "a" / "copy"], fallback))
             assert (root / "a" / "copy").read_bytes() == b"source-data"
 

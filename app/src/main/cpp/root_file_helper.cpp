@@ -137,6 +137,7 @@ Parent open_parent(const RootPath& p) {
     return {secure_open(p.fd, parent, O_RDONLY | O_DIRECTORY), std::move(leaf)};
 }
 bool regular_fd(int fd) { struct stat st{}; return fstat(fd, &st) == 0 && S_ISREG(st.st_mode); }
+bool existing_path_fd(int fd) { struct stat st{}; return fstat(fd, &st) == 0 && (S_ISREG(st.st_mode) || S_ISDIR(st.st_mode)); }
 bool copy_bytes(int in, int out) { std::array<unsigned char, 64 * 1024> b{}; while (true) { ssize_t n = read(in, b.data(), b.size()); if (n < 0 && errno == EINTR) continue; if (n < 0) return false; if (n == 0) return true; if (!write_full(out, b.data(), n)) return false; } }
 std::string random_leaf(std::string_view leaf) { std::array<unsigned char, 8> b{}; int f = open("/dev/urandom", O_RDONLY | O_CLOEXEC); if (f < 0 || !read_full(f,b.data(),b.size())) { if(f>=0)close(f); return {}; } close(f); char x[17]; for(size_t i=0;i<b.size();++i) snprintf(x+i*2,3,"%02x",b[i]); return "." + std::string(leaf) + ".wuwa." + x; }
 
@@ -164,9 +165,9 @@ int run(const Request& r) {
     if(r.op==Op::Ping)return send_response(true,0);
     std::vector<RootPath> p;
     const size_t path_count = (r.op == Op::Copy || r.op == Op::Replace) ? 2U : 1U;
-    for(size_t i=0;i<path_count;++i){auto x=map_path(r.fields.at(i));if(x.fd<0)return fail(errno,"path rejected");p.push_back(std::move(x));}
+    for(size_t i=0;i<path_count;++i){auto x=map_path(r.fields.at(i));if(x.fd<0)return fail(errno,"path rejected");p.push_back({x.fd, x.relative});}
     auto close_all=[&]{for(auto&x:p)if(x.fd>=0)close(x.fd);}; std::vector<unsigned char> payload; bool ok=false;
-    if(r.op==Op::Exists){int f=secure_open(p[0].fd,p[0].relative,O_RDONLY|O_NONBLOCK);int saved=errno;if(f>=0){bool regular=regular_fd(f);close(f);if(!regular){errno=EINVAL;ok=false;}else{payload={1};ok=true;}}else if(saved==ENOENT||saved==ELOOP||saved==ENXIO){payload={0};close_all();return send_response(true,0,payload);}else{errno=saved;ok=false;}}
+    if(r.op==Op::Exists){int f=secure_open(p[0].fd,p[0].relative,O_RDONLY|O_NONBLOCK);int saved=errno;if(f>=0){bool supported=existing_path_fd(f);close(f);if(!supported){errno=EINVAL;ok=false;}else{payload={1};ok=true;}}else if(saved==ENOENT||saved==ELOOP||saved==ENXIO){payload={0};close_all();return send_response(true,0,payload);}else{errno=saved;ok=false;}}
     else if(r.op==Op::Mkdirs)ok=make_dirs(p[0]);
     else if(r.op==Op::Delete){Parent q=open_parent(p[0]);if(q.fd>=0){struct stat st{};ok=fstatat(q.fd,q.leaf.c_str(),&st,AT_SYMLINK_NOFOLLOW)==0&&S_ISREG(st.st_mode)&&unlinkat(q.fd,q.leaf.c_str(),0)==0;close(q.fd);}}
     else if(r.op==Op::Read||r.op==Op::Sha1||r.op==Op::Sha256){int f=secure_open(p[0].fd,p[0].relative,O_RDONLY|O_NONBLOCK);if(f>=0&&regular_fd(f)){if(r.op==Op::Read){std::array<unsigned char,65536>b{};ok=true;while(ok){ssize_t n=read(f,b.data(),b.size());if(n<0&&errno==EINTR)continue;if(n<0){ok=false;break;}if(!n)break;if(payload.size()+n>kMaxPayload){errno=EFBIG;ok=false;break;}payload.insert(payload.end(),b.begin(),b.begin()+n);}}else{payload=r.op==Op::Sha1?sha1_fd(f):sha256_fd(f);ok=!payload.empty();}}if(f>=0)close(f);}
