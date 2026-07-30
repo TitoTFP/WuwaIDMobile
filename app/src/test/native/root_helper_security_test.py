@@ -55,6 +55,7 @@ def run_mode(helper, fallback):
 
             ok(request(helper, root, "mkdirs", [root / "a" / "b"], fallback))
             assert ok(request(helper, root, "exists", [root / "a" / "b"], fallback)) == b"\x01"
+            ok(request(helper, root, "delete", [root / "missing-backup.bak"], fallback))
             ok(request(helper, root, "copy", [source, root / "a" / "copy"], fallback))
             assert (root / "a" / "copy").read_bytes() == b"source-data"
 
