@@ -71,6 +71,10 @@ def run_mode(helper, fallback):
             assert sig_file.stat().st_uid == root.stat().st_uid
             assert (pak_file.stat().st_mode & 0o777) == 0o644
             assert (sig_file.stat().st_mode & 0o777) == 0o644
+            ok(request(helper, root, "delete", [pak_file], fallback))
+            ok(request(helper, root, "delete", [sig_file], fallback))
+            ok(request(helper, root, "delete", [wuwa_dir], fallback))
+            assert not wuwa_dir.exists()
 
             ok(request(helper, root, "delete", [root / "missing-backup.bak"], fallback))
             ok(request(helper, root, "copy", [source, root / "a" / "copy"], fallback))

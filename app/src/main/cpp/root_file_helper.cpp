@@ -148,12 +148,15 @@ bool delete_regular_file_if_exists(const RootPath& p) {
         errno = saved;
         return saved == ENOENT;
     }
-    if (!S_ISREG(st.st_mode)) {
+    int flags = 0;
+    if (S_ISDIR(st.st_mode)) {
+        flags = AT_REMOVEDIR;
+    } else if (!S_ISREG(st.st_mode)) {
         close(parent.fd);
         errno = EINVAL;
         return false;
     }
-    bool deleted = unlinkat(parent.fd, parent.leaf.c_str(), 0) == 0;
+    bool deleted = unlinkat(parent.fd, parent.leaf.c_str(), flags) == 0;
     int saved = errno;
     close(parent.fd);
     errno = saved;

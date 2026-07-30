@@ -223,8 +223,9 @@ class GamePathsTest {
             writeText("keep")
         }
 
-        assertEquals(owned.size, fixture.paths.uninstall())
+        assertEquals(owned.size + 1, fixture.paths.uninstall())
         assertTrue(owned.none { File(it).exists() })
+        assertFalse(File(target.directory).exists())
         assertTrue(other.exists())
     }
 
