@@ -68,7 +68,10 @@ class GamePaths(
     fun inspect(latest: PatchRelease?): InstallInspection {
         val version = resolveResourceVersion()
         val versions = resourceVersions()
-        val anyOwned = versions.any { ownedArtifactPaths(paths(it)).any(files::exists) }
+        val anyOwned = versions.any { version ->
+            val target = paths(version)
+            ownedArtifactPaths(target).any(files::exists) || files.exists(target.directory)
+        }
         if (version == null) {
             return InstallInspection(
                 resourceVersion = null,
@@ -190,8 +193,12 @@ class GamePaths(
     fun uninstall(): Int {
         var removed = 0
         for (version in resourceVersions()) {
-            for (path in ownedArtifactPaths(paths(version))) {
+            val target = paths(version)
+            for (path in ownedArtifactPaths(target)) {
                 if (files.exists(path) && files.deleteFile(path)) removed++
+            }
+            if (files.exists(target.directory) && files.deleteFile(target.directory)) {
+                removed++
             }
         }
         return removed
@@ -309,7 +316,11 @@ class GamePaths(
 
     private fun cleanupOldVersions(currentVersion: String) {
         for (version in resourceVersions().filterNot { it == currentVersion }) {
-            ownedArtifactPaths(paths(version)).forEach(files::deleteFile)
+            val target = paths(version)
+            ownedArtifactPaths(target).forEach(files::deleteFile)
+            if (files.exists(target.directory)) {
+                files.deleteFile(target.directory)
+            }
         }
     }
 

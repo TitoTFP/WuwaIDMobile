@@ -137,13 +137,49 @@ Parent open_parent(const RootPath& p) {
     return {secure_open(p.fd, parent, O_RDONLY | O_DIRECTORY), std::move(leaf)};
 }
 bool regular_fd(int fd) { struct stat st{}; return fstat(fd, &st) == 0 && S_ISREG(st.st_mode); }
+bool existing_path_fd(int fd) { struct stat st{}; return fstat(fd, &st) == 0 && (S_ISREG(st.st_mode) || S_ISDIR(st.st_mode)); }
+bool delete_regular_file_if_exists(const RootPath& p) {
+    Parent parent = open_parent(p);
+    if (parent.fd < 0) return errno == ENOENT;
+    struct stat st{};
+    if (fstatat(parent.fd, parent.leaf.c_str(), &st, AT_SYMLINK_NOFOLLOW) != 0) {
+        int saved = errno;
+        close(parent.fd);
+        errno = saved;
+        return saved == ENOENT;
+    }
+    int flags = 0;
+    if (S_ISDIR(st.st_mode)) {
+        flags = AT_REMOVEDIR;
+    } else if (!S_ISREG(st.st_mode)) {
+        close(parent.fd);
+        errno = EINVAL;
+        return false;
+    }
+    bool deleted = unlinkat(parent.fd, parent.leaf.c_str(), flags) == 0;
+    int saved = errno;
+    close(parent.fd);
+    errno = saved;
+    return deleted || saved == ENOENT;
+}
 bool copy_bytes(int in, int out) { std::array<unsigned char, 64 * 1024> b{}; while (true) { ssize_t n = read(in, b.data(), b.size()); if (n < 0 && errno == EINTR) continue; if (n < 0) return false; if (n == 0) return true; if (!write_full(out, b.data(), n)) return false; } }
 std::string random_leaf(std::string_view leaf) { std::array<unsigned char, 8> b{}; int f = open("/dev/urandom", O_RDONLY | O_CLOEXEC); if (f < 0 || !read_full(f,b.data(),b.size())) { if(f>=0)close(f); return {}; } close(f); char x[17]; for(size_t i=0;i<b.size();++i) snprintf(x+i*2,3,"%02x",b[i]); return "." + std::string(leaf) + ".wuwa." + x; }
 
-bool apply_metadata(int fd, int parent) { struct stat st{}; if (fstat(parent, &st)) return false; return fchown(fd, st.st_uid, st.st_gid) == 0 && fchmod(fd, 0644) == 0; }
+bool apply_metadata(int fd, int parent, int root_fd = -1) {
+    struct stat st{}; if (fstat(parent, &st) != 0) return false;
+    uid_t uid = st.st_uid; gid_t gid = st.st_gid;
+    if (uid == 0 && root_fd >= 0) { struct stat root_st{}; if (fstat(root_fd, &root_st) == 0 && root_st.st_uid != 0) { uid = root_st.st_uid; gid = root_st.st_gid; (void)fchown(parent, uid, gid); } }
+    return fchown(fd, uid, gid) == 0 && fchmod(fd, 0644) == 0;
+}
+bool apply_dir_metadata(int fd, int parent, int root_fd = -1) {
+    struct stat st{}; if (fstat(parent, &st) != 0) return false;
+    uid_t uid = st.st_uid; gid_t gid = st.st_gid;
+    if (uid == 0 && root_fd >= 0) { struct stat root_st{}; if (fstat(root_fd, &root_st) == 0 && root_st.st_uid != 0) { uid = root_st.st_uid; gid = root_st.st_gid; (void)fchown(parent, uid, gid); } }
+    return fchown(fd, uid, gid) == 0 && fchmod(fd, 0755) == 0;
+}
 bool atomic_write(const RootPath& dst, const unsigned char* data, size_t size) {
     Parent p = open_parent(dst); if (p.fd < 0) return false; std::string tmp = random_leaf(p.leaf); if(tmp.empty()){close(p.fd);return false;}
-    int out = openat(p.fd, tmp.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600); bool ok = out >= 0 && write_full(out,data,size) && fsync(out)==0 && apply_metadata(out,p.fd); int saved=errno;
+    int out = openat(p.fd, tmp.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600); bool ok = out >= 0 && write_full(out,data,size) && fsync(out)==0 && apply_metadata(out,p.fd,dst.fd); int saved=errno;
     if(out>=0 && close(out)!=0) ok=false;
     if(ok) ok=renameat(p.fd,tmp.c_str(),p.fd,p.leaf.c_str())==0 && fsync(p.fd)==0;
     if(!ok){saved=errno == 0 ? saved : errno; unlinkat(p.fd,tmp.c_str(),0);}
@@ -152,7 +188,16 @@ bool atomic_write(const RootPath& dst, const unsigned char* data, size_t size) {
 
 bool make_dirs(const RootPath& p) {
     int current=dup(p.fd); if(current<0)return false; size_t start=0; if(p.relative.empty()){close(current);return true;}
-    while(start<p.relative.size()){size_t end=p.relative.find('/',start); if(end==std::string::npos)end=p.relative.size(); std::string part=p.relative.substr(start,end-start); if(mkdirat(current,part.c_str(),0755)&&errno!=EEXIST){close(current);return false;} int next=openat(current,part.c_str(),O_RDONLY|O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC); close(current); if(next<0)return false; current=next; start=end+1;} close(current); return true;
+    while(start<p.relative.size()){
+        size_t end=p.relative.find('/',start); if(end==std::string::npos)end=p.relative.size();
+        std::string part=p.relative.substr(start,end-start);
+        if(mkdirat(current,part.c_str(),0755)&&errno!=EEXIST){close(current);return false;}
+        int next=openat(current,part.c_str(),O_RDONLY|O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC);
+        if(next<0){close(current);return false;}
+        if(!apply_dir_metadata(next,current,p.fd)){close(next);close(current);return false;}
+        close(current); current=next; start=end+1;
+    }
+    close(current); return true;
 }
 
 uint32_t rol(uint32_t v,int n){return(v<<n)|(v>>(32-n));}
@@ -164,16 +209,16 @@ int run(const Request& r) {
     if(r.op==Op::Ping)return send_response(true,0);
     std::vector<RootPath> p;
     const size_t path_count = (r.op == Op::Copy || r.op == Op::Replace) ? 2U : 1U;
-    for(size_t i=0;i<path_count;++i){auto x=map_path(r.fields.at(i));if(x.fd<0)return fail(errno,"path rejected");p.push_back(std::move(x));}
+    for(size_t i=0;i<path_count;++i){auto x=map_path(r.fields.at(i));if(x.fd<0)return fail(errno,"path rejected");p.push_back({x.fd, x.relative});}
     auto close_all=[&]{for(auto&x:p)if(x.fd>=0)close(x.fd);}; std::vector<unsigned char> payload; bool ok=false;
-    if(r.op==Op::Exists){int f=secure_open(p[0].fd,p[0].relative,O_RDONLY|O_NONBLOCK);int saved=errno;if(f>=0){bool regular=regular_fd(f);close(f);if(!regular){errno=EINVAL;ok=false;}else{payload={1};ok=true;}}else if(saved==ENOENT||saved==ELOOP||saved==ENXIO){payload={0};close_all();return send_response(true,0,payload);}else{errno=saved;ok=false;}}
+    if(r.op==Op::Exists){int f=secure_open(p[0].fd,p[0].relative,O_RDONLY|O_NONBLOCK);int saved=errno;if(f>=0){bool supported=existing_path_fd(f);close(f);if(!supported){errno=EINVAL;ok=false;}else{payload={1};ok=true;}}else if(saved==ENOENT||saved==ELOOP||saved==ENXIO){payload={0};close_all();return send_response(true,0,payload);}else{errno=saved;ok=false;}}
     else if(r.op==Op::Mkdirs)ok=make_dirs(p[0]);
-    else if(r.op==Op::Delete){Parent q=open_parent(p[0]);if(q.fd>=0){struct stat st{};ok=fstatat(q.fd,q.leaf.c_str(),&st,AT_SYMLINK_NOFOLLOW)==0&&S_ISREG(st.st_mode)&&unlinkat(q.fd,q.leaf.c_str(),0)==0;close(q.fd);}}
+    else if(r.op==Op::Delete)ok=delete_regular_file_if_exists(p[0]);
     else if(r.op==Op::Read||r.op==Op::Sha1||r.op==Op::Sha256){int f=secure_open(p[0].fd,p[0].relative,O_RDONLY|O_NONBLOCK);if(f>=0&&regular_fd(f)){if(r.op==Op::Read){std::array<unsigned char,65536>b{};ok=true;while(ok){ssize_t n=read(f,b.data(),b.size());if(n<0&&errno==EINTR)continue;if(n<0){ok=false;break;}if(!n)break;if(payload.size()+n>kMaxPayload){errno=EFBIG;ok=false;break;}payload.insert(payload.end(),b.begin(),b.begin()+n);}}else{payload=r.op==Op::Sha1?sha1_fd(f):sha256_fd(f);ok=!payload.empty();}}if(f>=0)close(f);}
     else if(r.op==Op::List){int d=secure_open(p[0].fd,p[0].relative,O_RDONLY|O_DIRECTORY);if(d>=0){DIR* dir=fdopendir(d);if(dir){std::vector<std::string> names;errno=0;for(dirent*e;(e=readdir(dir));){if(strcmp(e->d_name,".")&&strcmp(e->d_name,"..")){if(names.size()>=100000){errno=EOVERFLOW;break;}names.emplace_back(e->d_name);}}ok=errno==0;if(ok){std::sort(names.begin(),names.end());put32(payload,names.size());for(auto&n:names){if(payload.size()+4+n.size()>kMaxPayload){errno=EOVERFLOW;ok=false;break;}put32(payload,n.size());payload.insert(payload.end(),n.begin(),n.end());}}int saved=errno;closedir(dir);errno=saved;}else close(d);}}
     else if(r.op==Op::WriteAtomic)ok=atomic_write(p[0],reinterpret_cast<const unsigned char*>(r.fields[1].data()),r.fields[1].size());
-    else if(r.op==Op::Copy){int in=secure_open(p[0].fd,p[0].relative,O_RDONLY|O_NONBLOCK);if(in>=0&&regular_fd(in)){Parent dst=open_parent(p[1]);if(dst.fd>=0){std::string tmp=random_leaf(dst.leaf);int out=tmp.empty()?-1:openat(dst.fd,tmp.c_str(),O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);ok=out>=0&&copy_bytes(in,out)&&fsync(out)==0&&apply_metadata(out,dst.fd);if(out>=0&&close(out)!=0)ok=false;if(ok)ok=renameat(dst.fd,tmp.c_str(),dst.fd,dst.leaf.c_str())==0&&fsync(dst.fd)==0;if(!ok&&!tmp.empty())unlinkat(dst.fd,tmp.c_str(),0);close(dst.fd);}}if(in>=0)close(in);}
-    else if(r.op==Op::Replace){int in=secure_open(p[0].fd,p[0].relative,O_RDONLY|O_NONBLOCK);if(in>=0&&regular_fd(in)){Parent dst=open_parent(p[1]);if(dst.fd>=0){std::string tmp=random_leaf(dst.leaf);int out=tmp.empty()?-1:openat(dst.fd,tmp.c_str(),O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);ok=out>=0&&copy_bytes(in,out)&&fsync(out)==0&&apply_metadata(out,dst.fd);if(out>=0&&close(out)!=0)ok=false;if(ok)ok=renameat(dst.fd,tmp.c_str(),dst.fd,dst.leaf.c_str())==0&&fsync(dst.fd)==0;if(!ok&&!tmp.empty())unlinkat(dst.fd,tmp.c_str(),0);close(dst.fd);}}if(in>=0)close(in);}
+    else if(r.op==Op::Copy){int in=secure_open(p[0].fd,p[0].relative,O_RDONLY|O_NONBLOCK);if(in>=0&&regular_fd(in)){Parent dst=open_parent(p[1]);if(dst.fd>=0){std::string tmp=random_leaf(dst.leaf);int out=tmp.empty()?-1:openat(dst.fd,tmp.c_str(),O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);ok=out>=0&&copy_bytes(in,out)&&fsync(out)==0&&apply_metadata(out,dst.fd,p[1].fd);if(out>=0&&close(out)!=0)ok=false;if(ok)ok=renameat(dst.fd,tmp.c_str(),dst.fd,dst.leaf.c_str())==0&&fsync(dst.fd)==0;if(!ok&&!tmp.empty())unlinkat(dst.fd,tmp.c_str(),0);close(dst.fd);}}if(in>=0)close(in);}
+    else if(r.op==Op::Replace){int in=secure_open(p[0].fd,p[0].relative,O_RDONLY|O_NONBLOCK);if(in>=0&&regular_fd(in)){Parent dst=open_parent(p[1]);if(dst.fd>=0){std::string tmp=random_leaf(dst.leaf);int out=tmp.empty()?-1:openat(dst.fd,tmp.c_str(),O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);ok=out>=0&&copy_bytes(in,out)&&fsync(out)==0&&apply_metadata(out,dst.fd,p[1].fd);if(out>=0&&close(out)!=0)ok=false;if(ok)ok=renameat(dst.fd,tmp.c_str(),dst.fd,dst.leaf.c_str())==0&&fsync(dst.fd)==0;if(!ok&&!tmp.empty())unlinkat(dst.fd,tmp.c_str(),0);close(dst.fd);}}if(in>=0)close(in);}
     int e=errno;close_all();return ok?send_response(true,0,payload):fail(e,"operation failed");
 }
 } // namespace

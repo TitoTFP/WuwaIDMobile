@@ -21,7 +21,7 @@ def request(helper, root, op, fields=(), fallback=False):
     env = dict(os.environ, WUWA_TEST_ROOT=str(root))
     if fallback:
         env["WUWA_FORCE_OPENAT_FALLBACK"] = "1"
-    result = subprocess.run([helper, "--stdio"], input=frame, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    result = subprocess.run([helper, "--stdio"], input=frame, capture_output=True,
                             env=env, timeout=5, check=False)
     assert len(result.stdout) >= 16, (result.returncode, result.stdout, result.stderr)
     magic, version, status, error, size = struct.unpack(">IHHII", result.stdout[:16])
@@ -54,8 +54,32 @@ def run_mode(helper, fallback):
             assert request(helper, root, "delete", [fifo], fallback)[0] == 1
 
             ok(request(helper, root, "mkdirs", [root / "a" / "b"], fallback))
+            assert ok(request(helper, root, "exists", [root / "a" / "b"], fallback)) == b"\x01"
+            assert (root / "a").stat().st_uid == root.stat().st_uid
+            assert (root / "a" / "b").stat().st_uid == root.stat().st_uid
+
+            wuwa_dir = root / "wuwaindonesia"
+            ok(request(helper, root, "mkdirs", [wuwa_dir], fallback))
+            assert wuwa_dir.stat().st_uid == root.stat().st_uid
+            assert (wuwa_dir.stat().st_mode & 0o777) == 0o755
+
+            pak_file = wuwa_dir / "WuWaID_99_P.pak"
+            sig_file = wuwa_dir / "WuWaID_99_P.sig"
+            ok(request(helper, root, "copy", [source, pak_file], fallback))
+            ok(request(helper, root, "copy", [source, sig_file], fallback))
+            assert pak_file.stat().st_uid == root.stat().st_uid
+            assert sig_file.stat().st_uid == root.stat().st_uid
+            assert (pak_file.stat().st_mode & 0o777) == 0o644
+            assert (sig_file.stat().st_mode & 0o777) == 0o644
+            ok(request(helper, root, "delete", [pak_file], fallback))
+            ok(request(helper, root, "delete", [sig_file], fallback))
+            ok(request(helper, root, "delete", [wuwa_dir], fallback))
+            assert not wuwa_dir.exists()
+
+            ok(request(helper, root, "delete", [root / "missing-backup.bak"], fallback))
             ok(request(helper, root, "copy", [source, root / "a" / "copy"], fallback))
             assert (root / "a" / "copy").read_bytes() == b"source-data"
+            assert (root / "a" / "copy").stat().st_uid == root.stat().st_uid
 
             staged = root / "staged"
             staged.write_bytes(b"replacement")
