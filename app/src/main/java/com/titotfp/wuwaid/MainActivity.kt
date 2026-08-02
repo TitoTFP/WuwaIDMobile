@@ -28,6 +28,7 @@ class MainActivity : Activity() {
     private var rootActive = false
     private val executor = Executors.newSingleThreadExecutor()
     private val releaseClient = GitHubReleaseClient()
+    private val diagnosticUploadClient = DiagnosticUploadClient()
     private val refreshGeneration = AtomicInteger()
 
     @Volatile
@@ -57,15 +58,17 @@ class MainActivity : Activity() {
 
         releaseStore = ReleaseStore(this)
         latestRelease = releaseStore.load()
-        shizuku = ShizukuFileClient(this) {
-            runOnUiThread { refresh(fetchNetwork = false) }
-        }
+        shizuku =
+            ShizukuFileClient(this) {
+                runOnUiThread { refresh(fetchNetwork = false) }
+            }
         root = RootFileClient(this)
 
         binding.primaryButton.setOnClickListener { performPrimaryAction() }
         binding.refreshButton.setOnClickListener { refresh(fetchNetwork = true) }
         binding.uninstallButton.setOnClickListener { confirmUninstall() }
         binding.appUpdateButton.setOnClickListener { confirmAppUpdate() }
+        binding.sendDiagnosticsButton.setOnClickListener { confirmSendDiagnostics() }
 
         renderRelease(latestRelease, latestRelease?.let { "Cache rilis terakhir" })
         renderAppUpdate(null, checked = false, warning = null)
@@ -126,49 +129,54 @@ class MainActivity : Activity() {
             val serviceReady = rootActive || (permission && shizuku.isReady())
             if (!rootActive && permission && !serviceReady) runOnUiThread { shizuku.bind() }
 
-            val inspection = if (serviceReady) {
-                runCatching { GamePaths(privilegedFiles(), backendLabel = backendLabel()).inspect(release) }.getOrElse { error ->
-                    if (generation == refreshGeneration.get()) {
-                        runOnUiThread { renderError(readableError(error)) }
+            val inspection =
+                if (serviceReady) {
+                    runCatching { GamePaths(privilegedFiles(), backendLabel = backendLabel()).inspect(release) }.getOrElse { error ->
+                        if (generation == refreshGeneration.get()) {
+                            runOnUiThread { renderError(readableError(error)) }
+                        }
+                        return@execute
                     }
-                    return@execute
-                }
-            } else {
-                null
-            }
-
-            val inputs = StateInputs(
-                shizukuAvailable = available,
-                shizukuPermission = permission,
-                serviceReady = serviceReady,
-                resourceVersion = inspection?.resourceVersion,
-                conflicts = inspection?.conflicts.orEmpty(),
-                anyOwnedPatch = inspection?.anyOwnedPatch == true,
-                currentHealthy = inspection?.currentHealthy == true,
-                releaseAvailable = release != null,
-                matchesLatest = inspection?.matchesLatest == true,
-            )
-            val state = LauncherStateResolver.resolve(inputs)
-            val diagnosticLines = buildList {
-                add("Aplikasi: ${BuildConfig.VERSION_NAME}")
-                appUpdate?.let { add("Update aplikasi: ${it.tag} (${formatBytes(it.size)})") }
-                if (appUpdate == null && updateChecked) add("Update aplikasi: versi terbaru")
-                if (appUpdateMessage.isNotBlank()) add(appUpdateMessage)
-                if (rootActive) {
-                    add("Root: siap")
                 } else {
-                    add("Shizuku: ${shizukuSummary(available, permission, serviceReady)}")
-                    if (shizuku.isBinding()) add("UserService: sedang menghubungkan")
+                    null
                 }
-                privilegedFiles().lastError().takeIf(String::isNotBlank)?.let { add("File service: $it") }
-                addAll(inspection?.diagnostics.orEmpty())
-                release?.let {
-                    add("Release: ${it.tag}")
-                    add("Asset: ${ReleaseParser.PATCH_ASSET} (${formatBytes(it.size)})")
-                    add("Expected SHA-256: ${it.sha256}")
+
+            val inputs =
+                StateInputs(
+                    shizukuAvailable = available,
+                    shizukuPermission = permission,
+                    serviceReady = serviceReady,
+                    resourceVersion = inspection?.resourceVersion,
+                    conflicts = inspection?.conflicts.orEmpty(),
+                    anyOwnedPatch = inspection?.anyOwnedPatch == true,
+                    currentHealthy = inspection?.currentHealthy == true,
+                    releaseAvailable = release != null,
+                    matchesLatest = inspection?.matchesLatest == true,
+                )
+            val state = LauncherStateResolver.resolve(inputs)
+            val diagnosticLines =
+                buildList {
+                    add("Aplikasi: ${BuildConfig.VERSION_NAME}")
+                    appUpdate?.let { add("Update aplikasi: ${it.tag} (${formatBytes(it.size)})") }
+                    if (appUpdate == null && updateChecked) add("Update aplikasi: versi terbaru")
+                    if (appUpdateMessage.isNotBlank()) add(appUpdateMessage)
+                    if (rootActive) {
+                        add("Root: siap")
+                    } else {
+                        add("Shizuku: ${shizukuSummary(available, permission, serviceReady)}")
+                        shizuku.connectionDiagnostic().takeIf(String::isNotBlank)?.lineSequence()?.forEach {
+                            add("UserService: $it")
+                        }
+                    }
+                    privilegedFiles().lastError().takeIf(String::isNotBlank)?.let { add("File service: $it") }
+                    addAll(inspection?.diagnostics.orEmpty())
+                    release?.let {
+                        add("Release: ${it.tag}")
+                        add("Asset: ${ReleaseParser.PATCH_ASSET} (${formatBytes(it.size)})")
+                        add("Expected SHA-256: ${it.sha256}")
+                    }
+                    if (networkMessage.isNotBlank()) add(networkMessage)
                 }
-                if (networkMessage.isNotBlank()) add(networkMessage)
-            }
 
             if (generation != refreshGeneration.get()) return@execute
             runOnUiThread {
@@ -187,15 +195,30 @@ class MainActivity : Activity() {
 
     private fun performPrimaryAction() {
         when (currentStatus) {
-            LauncherStatus.NEEDS_SHIZUKU -> handleShizukuAction()
-            LauncherStatus.GAME_NOT_READY, LauncherStatus.READY -> launchGame()
-            LauncherStatus.NOT_INSTALLED, LauncherStatus.UPDATE_AVAILABLE -> installPatch()
-            LauncherStatus.CONFLICT -> toast("Lepas patch yang tercantum pada diagnostik terlebih dahulu")
+            LauncherStatus.NEEDS_SHIZUKU -> {
+                handleShizukuAction()
+            }
+
+            LauncherStatus.GAME_NOT_READY, LauncherStatus.READY -> {
+                launchGame()
+            }
+
+            LauncherStatus.NOT_INSTALLED, LauncherStatus.UPDATE_AVAILABLE -> {
+                installPatch()
+            }
+
+            LauncherStatus.CONFLICT -> {
+                toast("Lepas patch yang tercantum pada diagnostik terlebih dahulu")
+            }
+
             LauncherStatus.ERROR -> {
                 root.invalidateProbe()
                 refresh(fetchNetwork = true)
             }
-            LauncherStatus.BUSY -> Unit
+
+            LauncherStatus.BUSY -> {
+                Unit
+            }
         }
     }
 
@@ -203,10 +226,47 @@ class MainActivity : Activity() {
         when {
             !shizuku.isAvailable() -> openShizukuManager()
             !shizuku.hasPermission() -> shizuku.requestPermission()
-            else -> shizuku.bind()
+            else -> shizuku.reconnect()
         }
         root.invalidateProbe()
         refresh(fetchNetwork = false)
+    }
+
+    private fun confirmSendDiagnostics() {
+        if (busy || executor.isShutdown) return
+        val report = diagnosticReport()
+        AlertDialog
+            .Builder(this)
+            .setTitle(R.string.send_diagnostics_title)
+            .setMessage(R.string.send_diagnostics_message)
+            .setNegativeButton(R.string.cancel, null)
+            .setPositiveButton(R.string.send_diagnostics) { _, _ -> sendDiagnostics(report) }
+            .show()
+    }
+
+    private fun sendDiagnostics(report: String) {
+        if (executor.isShutdown) return
+        binding.sendDiagnosticsButton.isEnabled = false
+        executor.execute {
+            val result =
+                runCatching {
+                    diagnosticUploadClient.upload(
+                        report = report,
+                        appVersion = "WuwaIDMobile-${BuildConfig.VERSION_NAME}",
+                        os = "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})",
+                    )
+                }
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                binding.sendDiagnosticsButton.isEnabled = true
+                result
+                    .onSuccess {
+                        toast(getString(R.string.diagnostics_sent))
+                    }.onFailure { error ->
+                        toast(getString(R.string.diagnostics_send_failed, readableError(error)))
+                    }
+            }
+        }
     }
 
     private fun installPatch() {
@@ -226,8 +286,9 @@ class MainActivity : Activity() {
         currentStatus = LauncherStatus.BUSY
         renderBusy("Sedang memasang patch", "Menyiapkan unduhan…", 0)
         executor.execute {
-            val patchDirectory = getExternalFilesDir("patch")
-                ?: return@execute runOnUiThread { finishWithError("External files directory tidak tersedia") }
+            val patchDirectory =
+                getExternalFilesDir("patch")
+                    ?: return@execute runOnUiThread { finishWithError("External files directory tidak tersedia") }
             val partial = File(patchDirectory, "${ReleaseParser.PATCH_ASSET}.part")
             var lastPercent = -1
             try {
@@ -279,14 +340,16 @@ class MainActivity : Activity() {
             return
         }
 
-        AlertDialog.Builder(this)
+        AlertDialog
+            .Builder(this)
             .setTitle("Perbarui ke ${release.tag}?")
-            .setMessage(buildString {
-                append("${release.title}\n${formatBytes(release.size)}")
-                release.notes.takeIf(String::isNotBlank)?.let { append("\n\n$it") }
-                append("\n\nAndroid akan meminta konfirmasi instalasi.")
-            })
-            .setNegativeButton(R.string.cancel, null)
+            .setMessage(
+                buildString {
+                    append("${release.title}\n${formatBytes(release.size)}")
+                    release.notes.takeIf(String::isNotBlank)?.let { append("\n\n$it") }
+                    append("\n\nAndroid akan meminta konfirmasi instalasi.")
+                },
+            ).setNegativeButton(R.string.cancel, null)
             .setPositiveButton(R.string.update_app) { _, _ -> downloadAppUpdate(release) }
             .show()
     }
@@ -302,18 +365,20 @@ class MainActivity : Activity() {
             "APK diverifikasi sebelum installer Android dibuka.",
         )
         executor.execute {
-            val directory = getExternalFilesDir(UpdateApkProvider.DIRECTORY)
-                ?: return@execute runOnUiThread { finishWithError("External files directory tidak tersedia") }
+            val directory =
+                getExternalFilesDir(UpdateApkProvider.DIRECTORY)
+                    ?: return@execute runOnUiThread { finishWithError("External files directory tidak tersedia") }
             val partial = File(directory, "${UpdateApkProvider.FILE_NAME}.part")
             val apk = File(directory, UpdateApkProvider.FILE_NAME)
             var lastPercent = -1
             try {
                 releaseClient.download(release, partial) { downloaded, total ->
-                    val percent = if (total > 0) {
-                        ((downloaded * 100L) / total).toInt().coerceIn(0, 100)
-                    } else {
-                        0
-                    }
+                    val percent =
+                        if (total > 0) {
+                            ((downloaded * 100L) / total).toInt().coerceIn(0, 100)
+                        } else {
+                            0
+                        }
                     if (percent != lastPercent) {
                         lastPercent = percent
                         runOnUiThread {
@@ -349,14 +414,16 @@ class MainActivity : Activity() {
     }
 
     private fun verifyUpdateApk(file: File) {
-        val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            PackageManager.GET_SIGNING_CERTIFICATES
-        } else {
-            @Suppress("DEPRECATION")
-            PackageManager.GET_SIGNATURES
-        }
-        val archive = packageManager.getPackageArchiveInfo(file.absolutePath, flags)
-            ?: error("APK update tidak valid")
+        val flags =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                PackageManager.GET_SIGNING_CERTIFICATES
+            } else {
+                @Suppress("DEPRECATION")
+                PackageManager.GET_SIGNATURES
+            }
+        val archive =
+            packageManager.getPackageArchiveInfo(file.absolutePath, flags)
+                ?: error("APK update tidak valid")
         val installed = packageManager.getPackageInfo(packageName, flags)
         check(archive.packageName == packageName) { "Package APK update tidak cocok" }
         check(versionCode(archive) > versionCode(installed)) { "versionCode APK update tidak lebih baru" }
@@ -365,26 +432,29 @@ class MainActivity : Activity() {
 
     @Suppress("DEPRECATION")
     private fun signatures(info: PackageInfo): Set<String> {
-        val values = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            info.signingInfo?.apkContentsSigners.orEmpty()
-        } else {
-            info.signatures.orEmpty()
-        }
+        val values =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                info.signingInfo?.apkContentsSigners.orEmpty()
+            } else {
+                info.signatures.orEmpty()
+            }
         return values.map { it.toCharsString() }.toSet()
     }
 
     @Suppress("DEPRECATION")
-    private fun versionCode(info: PackageInfo): Long = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-        info.longVersionCode
-    } else {
-        info.versionCode.toLong()
-    }
+    private fun versionCode(info: PackageInfo): Long =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            info.longVersionCode
+        } else {
+            info.versionCode.toLong()
+        }
 
     private fun launchAppInstaller() {
         try {
-            val intent = Intent(Intent.ACTION_VIEW)
-                .setDataAndType(UpdateApkProvider.uri(this), UpdateApkProvider.MIME_TYPE)
-                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            val intent =
+                Intent(Intent.ACTION_VIEW)
+                    .setDataAndType(UpdateApkProvider.uri(this), UpdateApkProvider.MIME_TYPE)
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             startActivity(intent)
         } catch (_: ActivityNotFoundException) {
             toast("Installer APK tidak ditemukan")
@@ -400,7 +470,8 @@ class MainActivity : Activity() {
 
     private fun confirmUninstall() {
         if (!canUninstall || busy) return
-        AlertDialog.Builder(this)
+        AlertDialog
+            .Builder(this)
             .setTitle(R.string.uninstall_title)
             .setMessage(R.string.uninstall_message)
             .setNegativeButton(R.string.cancel, null)
@@ -454,74 +525,114 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun renderState(state: LauncherStatus, inputs: StateInputs, networkMessage: String) {
-        val (title, detail, action, color) = when (state) {
-            LauncherStatus.NEEDS_SHIZUKU -> when {
-                !inputs.shizukuAvailable -> StatusUi(
-                    "Shizuku belum berjalan",
-                    "Pasang atau aktifkan Shizuku, lalu kembali ke aplikasi.",
-                    "Buka Shizuku",
-                    R.color.danger,
-                )
-                !inputs.shizukuPermission -> StatusUi(
-                    "Izin Shizuku diperlukan",
-                    "WuwaID hanya memakai izin untuk folder data Wuthering Waves.",
-                    "Beri izin Shizuku",
-                    R.color.warning,
-                )
-                else -> StatusUi(
-                    "Menghubungkan Shizuku",
-                    "UserService belum siap. Tekan tombol untuk mencoba lagi.",
-                    "Hubungkan ulang",
-                    R.color.warning,
-                )
+    private fun renderState(
+        state: LauncherStatus,
+        inputs: StateInputs,
+        networkMessage: String,
+    ) {
+        val (title, detail, action, color) =
+            when (state) {
+                LauncherStatus.NEEDS_SHIZUKU -> {
+                    when {
+                        !inputs.shizukuAvailable -> {
+                            StatusUi(
+                                "Shizuku belum berjalan",
+                                "Pasang atau aktifkan Shizuku, lalu kembali ke aplikasi.",
+                                "Buka Shizuku",
+                                R.color.danger,
+                            )
+                        }
+
+                        !inputs.shizukuPermission -> {
+                            StatusUi(
+                                "Izin Shizuku diperlukan",
+                                "WuwaID hanya memakai izin untuk folder data Wuthering Waves.",
+                                "Beri izin Shizuku",
+                                R.color.warning,
+                            )
+                        }
+
+                        else -> {
+                            StatusUi(
+                                "Menghubungkan Shizuku",
+                                "UserService belum siap. Tekan tombol untuk mencoba lagi.",
+                                "Hubungkan ulang",
+                                R.color.warning,
+                            )
+                        }
+                    }
+                }
+
+                LauncherStatus.GAME_NOT_READY -> {
+                    StatusUi(
+                        "Data game belum siap",
+                        "Buka Wuthering Waves dan selesaikan unduhan resource terlebih dahulu.",
+                        "Buka Wuthering Waves",
+                        R.color.warning,
+                    )
+                }
+
+                LauncherStatus.CONFLICT -> {
+                    StatusUi(
+                        "Patch lain terdeteksi",
+                        "Instalasi diblokir agar mod lain tidak tertimpa. Lihat diagnostik.",
+                        "Lihat diagnostik",
+                        R.color.danger,
+                    )
+                }
+
+                LauncherStatus.NOT_INSTALLED -> {
+                    StatusUi(
+                        "Patch belum dipasang",
+                        networkMessage.ifBlank { getString(R.string.close_game_hint) },
+                        if (!releaseVerifiedOnline) "Periksa GitHub dahulu" else "Pasang Bahasa Indonesia",
+                        R.color.warning,
+                    )
+                }
+
+                LauncherStatus.UPDATE_AVAILABLE -> {
+                    StatusUi(
+                        "Pembaruan diperlukan",
+                        networkMessage.ifBlank { "Versi game atau patch terbaru berbeda dari instalasi saat ini." },
+                        if (!releaseVerifiedOnline) "Periksa GitHub dahulu" else "Perbarui patch",
+                        R.color.warning,
+                    )
+                }
+
+                LauncherStatus.READY -> {
+                    StatusUi(
+                        "Siap dimainkan",
+                        if (networkMessage.isBlank()) "Patch terpasang dan mount valid." else "Patch valid. Pemeriksaan update offline.",
+                        "Mainkan",
+                        R.color.success,
+                    )
+                }
+
+                LauncherStatus.BUSY -> {
+                    StatusUi("Sedang bekerja", "Jangan tutup aplikasi.", "Mohon tunggu", R.color.accent)
+                }
+
+                LauncherStatus.ERROR -> {
+                    StatusUi("Pemeriksaan gagal", "Tekan tombol untuk mencoba lagi.", "Coba lagi", R.color.danger)
+                }
             }
-            LauncherStatus.GAME_NOT_READY -> StatusUi(
-                "Data game belum siap",
-                "Buka Wuthering Waves dan selesaikan unduhan resource terlebih dahulu.",
-                "Buka Wuthering Waves",
-                R.color.warning,
-            )
-            LauncherStatus.CONFLICT -> StatusUi(
-                "Patch lain terdeteksi",
-                "Instalasi diblokir agar mod lain tidak tertimpa. Lihat diagnostik.",
-                "Lihat diagnostik",
-                R.color.danger,
-            )
-            LauncherStatus.NOT_INSTALLED -> StatusUi(
-                "Patch belum dipasang",
-                networkMessage.ifBlank { getString(R.string.close_game_hint) },
-                if (!releaseVerifiedOnline) "Periksa GitHub dahulu" else "Pasang Bahasa Indonesia",
-                R.color.warning,
-            )
-            LauncherStatus.UPDATE_AVAILABLE -> StatusUi(
-                "Pembaruan diperlukan",
-                networkMessage.ifBlank { "Versi game atau patch terbaru berbeda dari instalasi saat ini." },
-                if (!releaseVerifiedOnline) "Periksa GitHub dahulu" else "Perbarui patch",
-                R.color.warning,
-            )
-            LauncherStatus.READY -> StatusUi(
-                "Siap dimainkan",
-                if (networkMessage.isBlank()) "Patch terpasang dan mount valid." else "Patch valid. Pemeriksaan update offline.",
-                "Mainkan",
-                R.color.success,
-            )
-            LauncherStatus.BUSY -> StatusUi("Sedang bekerja", "Jangan tutup aplikasi.", "Mohon tunggu", R.color.accent)
-            LauncherStatus.ERROR -> StatusUi("Pemeriksaan gagal", "Tekan tombol untuk mencoba lagi.", "Coba lagi", R.color.danger)
-        }
 
         binding.statusTitle.text = title
         binding.statusDetail.text = detail
         binding.primaryButton.text = action
-        binding.primaryButton.isEnabled = when (state) {
-            LauncherStatus.BUSY, LauncherStatus.CONFLICT -> false
-            LauncherStatus.NOT_INSTALLED, LauncherStatus.UPDATE_AVAILABLE -> releaseVerifiedOnline
-            else -> true
-        }
+        binding.primaryButton.isEnabled =
+            when (state) {
+                LauncherStatus.BUSY, LauncherStatus.CONFLICT -> false
+                LauncherStatus.NOT_INSTALLED, LauncherStatus.UPDATE_AVAILABLE -> releaseVerifiedOnline
+                else -> true
+            }
         binding.statusDot.backgroundTintList = ColorStateList.valueOf(getColor(color))
     }
 
-    private fun renderRelease(release: PatchRelease?, warning: String?) {
+    private fun renderRelease(
+        release: PatchRelease?,
+        warning: String?,
+    ) {
         if (release == null) {
             binding.releaseMeta.text = warning ?: getString(R.string.release_loading)
             binding.releaseNotes.text = ""
@@ -529,22 +640,39 @@ class MainActivity : Activity() {
         }
         val date = release.publishedAt.take(10)
         binding.releaseMeta.text = "${release.tag}${if (date.isNotBlank()) " · $date" else ""}"
-        binding.releaseNotes.text = buildString {
-            if (warning != null) append("$warning\n\n")
-            append(release.notes.replace("\r", "").ifBlank { release.title })
-        }
+        binding.releaseNotes.text =
+            buildString {
+                if (warning != null) append("$warning\n\n")
+                append(release.notes.replace("\r", "").ifBlank { release.title })
+            }
     }
 
-    private fun renderAppUpdate(release: AppRelease?, checked: Boolean, warning: String?) {
-        binding.appUpdateText.text = when {
-            release != null -> buildString {
-                append("${release.tag} tersedia · ${formatBytes(release.size)}")
-                append("\n${warning ?: release.title}")
+    private fun renderAppUpdate(
+        release: AppRelease?,
+        checked: Boolean,
+        warning: String?,
+    ) {
+        binding.appUpdateText.text =
+            when {
+                release != null -> {
+                    buildString {
+                        append("${release.tag} tersedia · ${formatBytes(release.size)}")
+                        append("\n${warning ?: release.title}")
+                    }
+                }
+
+                warning != null -> {
+                    "Versi ${BuildConfig.VERSION_NAME}\n$warning"
+                }
+
+                checked -> {
+                    "Versi ${BuildConfig.VERSION_NAME} · terbaru"
+                }
+
+                else -> {
+                    "Versi ${BuildConfig.VERSION_NAME} · sedang diperiksa"
+                }
             }
-            warning != null -> "Versi ${BuildConfig.VERSION_NAME}\n$warning"
-            checked -> "Versi ${BuildConfig.VERSION_NAME} · terbaru"
-            else -> "Versi ${BuildConfig.VERSION_NAME} · sedang diperiksa"
-        }
         binding.appUpdateButton.visibility = if (release == null) View.GONE else View.VISIBLE
         binding.appUpdateButton.isEnabled = release != null && !busy
     }
@@ -600,16 +728,47 @@ class MainActivity : Activity() {
 
     private fun backendLabel(): String = if (rootActive) "Root" else "Shizuku"
 
-    private fun shizukuSummary(available: Boolean, permission: Boolean, ready: Boolean): String = when {
-        !available -> "tidak berjalan"
-        !permission -> "berjalan, izin belum diberikan"
-        !ready -> "izin diberikan, UserService belum siap"
-        else -> "siap"
-    }
+    private fun diagnosticReport(): String =
+        buildString {
+            append(diagnostics)
+            append("\n\nPerangkat: ${Build.MANUFACTURER} ${Build.MODEL}")
+            append("\nAndroid: ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
+            append("\nBuild ROM: ${Build.DISPLAY}")
+            append("\nPatch keamanan: ${Build.VERSION.SECURITY_PATCH}")
+            append("\nShizuku: ${shizukuVersion()}")
+        }
 
-    private fun readableError(error: Throwable): String = error.message
-        ?.takeIf(String::isNotBlank)
-        ?: error.javaClass.simpleName
+    @Suppress("DEPRECATION")
+    private fun shizukuVersion(): String =
+        runCatching {
+            val info =
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    packageManager.getPackageInfo(
+                        ShizukuFileClient.MANAGER_PACKAGE,
+                        PackageManager.PackageInfoFlags.of(0),
+                    )
+                } else {
+                    packageManager.getPackageInfo(ShizukuFileClient.MANAGER_PACKAGE, 0)
+                }
+            "${info.versionName ?: "?"} (${versionCode(info)})"
+        }.getOrDefault("tidak terpasang")
+
+    private fun shizukuSummary(
+        available: Boolean,
+        permission: Boolean,
+        ready: Boolean,
+    ): String =
+        when {
+            !available -> "tidak berjalan"
+            !permission -> "berjalan, izin belum diberikan"
+            !ready -> "izin diberikan, UserService belum siap"
+            else -> "siap"
+        }
+
+    private fun readableError(error: Throwable): String =
+        error.message
+            ?.takeIf(String::isNotBlank)
+            ?: error.javaClass.simpleName
 
     private fun formatBytes(bytes: Long): String = if (bytes < 0) "?" else "%.1f MB".format(bytes / 1_048_576.0)
 
@@ -617,7 +776,12 @@ class MainActivity : Activity() {
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()
     }
 
-    private data class StatusUi(val title: String, val detail: String, val action: String, val color: Int)
+    private data class StatusUi(
+        val title: String,
+        val detail: String,
+        val action: String,
+        val color: Int,
+    )
 
     companion object {
         private const val SHIZUKU_URL = "https://github.com/RikkaApps/Shizuku"

@@ -9,6 +9,11 @@
     <string name="app_update_heading">Pembaruan aplikasi</string>
     <string name="update_app">Perbarui WuwaID Mobile</string>
     <string name="diagnostics_heading">Diagnostik</string>
+    <string name="send_diagnostics">Kirim diagnostik</string>
+    <string name="send_diagnostics_title">Kirim diagnostik?</string>
+    <string name="send_diagnostics_message">Laporan berisi status aplikasi dan Shizuku, riwayat koneksi ringkas, perangkat, build ROM, serta patch keamanan. Log sistem atau log Shizuku lanjutan tidak disertakan. Laporan dikirim ke server WuwaID untuk dianalisis.</string>
+    <string name="diagnostics_sent">Diagnostik berhasil dikirim.</string>
+    <string name="diagnostics_send_failed">Gagal mengirim diagnostik: %1$s</string>
     <string name="release_heading">Rilis patch terbaru</string>
     <string name="release_loading">Mengambil informasi rilis…</string>
     <string name="uninstall">Hapus patch WuwaID</string>

@@ -41,7 +41,11 @@ class ShizukuFileClientTest {
         assertEquals(listOf(UnbindCall(1, true)), fixture.gateway.unbindCalls)
         assertTrue(fixture.client.isBinding())
         assertFalse(fixture.client.isReady())
-        assertEquals("UserService tidak merespons dalam 10 detik", fixture.client.lastError())
+        val diagnostic = fixture.client.connectionDiagnostic()
+        assertTrue(diagnostic.contains("UserService tidak merespons dalam 10 detik"))
+        assertTrue(diagnostic.contains("UserService gagal (percobaan #1): UserService tidak merespons dalam 10 detik"))
+        assertTrue(diagnostic.contains("Retry UserService #1 dijadwalkan"))
+        assertEquals("", fixture.client.lastError())
 
         fixture.scheduler.advanceBy(ShizukuFileClient.RETRY_DELAYS_MS[0] - 1)
         assertEquals(listOf(1), fixture.gateway.bindAttempts)
@@ -106,11 +110,71 @@ class ShizukuFileClientTest {
 
         assertFalse(fixture.client.isReady())
         assertTrue(fixture.client.isBinding())
-        assertEquals("UserService tidak mengembalikan binder yang aktif", fixture.client.lastError())
+        assertTrue(fixture.client.connectionDiagnostic().contains("UserService tidak mengembalikan binder yang aktif"))
+        assertEquals("", fixture.client.lastError())
         assertEquals(listOf(UnbindCall(1, true)), fixture.gateway.unbindCalls)
 
         fixture.scheduler.advanceBy(ShizukuFileClient.RETRY_DELAYS_MS[0])
         assertEquals(listOf(1, 2), fixture.gateway.bindAttempts)
+    }
+
+    @Test
+    fun binderValidationFailureIsRetainedDuringRetry() {
+        val fixture = Fixture()
+        fixture.client.start()
+        fixture.scheduler.advanceBy(ShizukuFileClient.INITIAL_BIND_DELAY_MS)
+
+        fixture.gateway.connectionFailed(1, "Binder UserService tidak aktif")
+
+        val diagnostic = fixture.client.connectionDiagnostic()
+        assertTrue(diagnostic.contains("Mode Shizuku: tidak diketahui"))
+        assertTrue(diagnostic.contains("Percobaan #2 (retry #1) sedang menghubungkan"))
+        assertTrue(diagnostic.contains("Kegagalan terakhir: Binder UserService tidak aktif"))
+        assertTrue(diagnostic.contains("UserService gagal (percobaan #1): Binder UserService tidak aktif"))
+        assertEquals("", fixture.client.lastError())
+        fixture.scheduler.advanceBy(ShizukuFileClient.RETRY_DELAYS_MS[0])
+        assertEquals(listOf(1, 2), fixture.gateway.bindAttempts)
+    }
+
+    @Test
+    fun connectionDiagnosticMapsShizukuModes() {
+        val fixture = Fixture()
+
+        listOf(
+            0 to "root/Sui",
+            2000 to "ADB shell",
+            null to "tidak diketahui",
+            -1 to "tidak diketahui",
+            1000 to "tidak diketahui",
+        ).forEach { (uid, expectedMode) ->
+            fixture.gateway.serverUid = uid
+            assertTrue(fixture.client.connectionDiagnostic().contains("Mode Shizuku: $expectedMode"))
+        }
+    }
+
+    @Test
+    fun connectionDiagnosticRetainsNewestTenTimestampedEvents() {
+        val fixture = Fixture()
+        fixture.client.start()
+
+        repeat(6) {
+            fixture.gateway.binderReceived()
+            fixture.gateway.binderDead()
+        }
+
+        val history =
+            fixture.client
+                .connectionDiagnostic()
+                .lineSequence()
+                .filter { it.startsWith("- ") }
+                .toList()
+
+        assertEquals(10, history.size)
+        assertTrue(history.all { it.matches(Regex("""- \d{4}-\d{2}-\d{2}T.*Z .+""")) })
+        assertEquals(5, history.count { it.endsWith("Binder Shizuku diterima") })
+        assertEquals(5, history.count { it.endsWith("Binder Shizuku terputus") })
+        assertTrue(history.first().endsWith("Binder Shizuku diterima"))
+        assertTrue(history.last().endsWith("Binder Shizuku terputus"))
     }
 
     @Test
@@ -124,7 +188,8 @@ class ShizukuFileClientTest {
 
         fixture.gateway.permissionResult(granted = false)
         assertFalse(fixture.client.isBinding())
-        assertEquals("Izin Shizuku ditolak", fixture.client.lastError())
+        assertTrue(fixture.client.connectionDiagnostic().contains("Izin Shizuku ditolak"))
+        assertEquals("", fixture.client.lastError())
 
         fixture.gateway.permissionResult(granted = true)
         assertTrue(fixture.client.isBinding())
@@ -144,7 +209,8 @@ class ShizukuFileClientTest {
 
         assertFalse(fixture.client.isReady())
         assertFalse(fixture.client.isBinding())
-        assertEquals("Layanan Shizuku terputus", fixture.client.lastError())
+        assertTrue(fixture.client.connectionDiagnostic().contains("Layanan Shizuku terputus"))
+        assertEquals("", fixture.client.lastError())
 
         fixture.gateway.binderReceived()
         assertTrue(fixture.client.isBinding())
@@ -157,11 +223,12 @@ class ShizukuFileClientTest {
 
     @Test
     fun serviceFailureCallbacksScheduleRecovery() {
-        val failureCallbacks = listOf<Pair<String, (FakeShizukuGateway, Int) -> Unit>>(
-            "disconnect" to { gateway, attempt -> gateway.disconnect(attempt) },
-            "binding died" to { gateway, attempt -> gateway.bindingDied(attempt) },
-            "null binding" to { gateway, attempt -> gateway.nullBinding(attempt) },
-        )
+        val failureCallbacks =
+            listOf<Pair<String, (FakeShizukuGateway, Int) -> Unit>>(
+                "disconnect" to { gateway, attempt -> gateway.disconnect(attempt) },
+                "binding died" to { gateway, attempt -> gateway.bindingDied(attempt) },
+                "null binding" to { gateway, attempt -> gateway.nullBinding(attempt) },
+            )
 
         failureCallbacks.forEach { (name, callback) ->
             val fixture = Fixture()
@@ -196,6 +263,31 @@ class ShizukuFileClientTest {
             ShizukuFileClient.BIND_TIMEOUT_MS + ShizukuFileClient.RETRY_DELAYS_MS.sum(),
         )
         assertEquals(listOf(1), fixture.gateway.bindAttempts)
+    }
+
+    @Test
+    fun reconnectCancelsActiveAttemptAndRejectsStaleCallback() {
+        val fixture = Fixture()
+        fixture.client.start()
+        fixture.scheduler.advanceBy(ShizukuFileClient.INITIAL_BIND_DELAY_MS)
+        assertEquals(listOf(1), fixture.gateway.bindAttempts)
+
+        fixture.client.reconnect()
+
+        assertTrue(fixture.client.isBinding())
+        assertEquals(1, fixture.scheduler.cancelledTasks)
+        assertEquals(listOf(UnbindCall(1, true)), fixture.gateway.unbindCalls)
+        fixture.gateway.connect(1, FakeUserServiceFiles())
+        assertFalse(fixture.client.isReady())
+        assertEquals(
+            listOf(UnbindCall(1, true), UnbindCall(1, true)),
+            fixture.gateway.unbindCalls,
+        )
+
+        fixture.scheduler.advanceBy(ShizukuFileClient.INITIAL_BIND_DELAY_MS)
+        assertEquals(listOf(1, 2), fixture.gateway.bindAttempts)
+        fixture.gateway.connect(2, FakeUserServiceFiles())
+        assertTrue(fixture.client.isReady())
     }
 
     @Test
@@ -242,6 +334,7 @@ class ShizukuFileClientTest {
         val bindAttempts = mutableListOf<Int>()
         val unbindCalls = mutableListOf<UnbindCall>()
         val permissionRequests = mutableListOf<Int>()
+        var serverUid: Int? = null
         var stopCalls = 0
         var bindError: Throwable? = null
 
@@ -259,6 +352,8 @@ class ShizukuFileClientTest {
 
         override fun hasPermission(): Boolean = permission
 
+        override fun serverUid(): Int? = serverUid
+
         override fun requestPermission(requestCode: Int) {
             permissionRequests += requestCode
         }
@@ -268,7 +363,10 @@ class ShizukuFileClientTest {
             bindError?.let { throw it }
         }
 
-        override fun unbindUserService(attemptId: Int, remove: Boolean) {
+        override fun unbindUserService(
+            attemptId: Int,
+            remove: Boolean,
+        ) {
             unbindCalls += UnbindCall(attemptId, remove)
         }
 
@@ -280,13 +378,26 @@ class ShizukuFileClientTest {
             listener?.onBinderDead()
         }
 
-        fun permissionResult(granted: Boolean, requestCode: Int = 1001) {
+        fun permissionResult(
+            granted: Boolean,
+            requestCode: Int = 1001,
+        ) {
             permission = granted
             listener?.onPermissionResult(requestCode, granted)
         }
 
-        fun connect(attemptId: Int, service: UserServiceFiles?) {
+        fun connect(
+            attemptId: Int,
+            service: UserServiceFiles?,
+        ) {
             listener?.onServiceConnected(attemptId, service)
+        }
+
+        fun connectionFailed(
+            attemptId: Int,
+            message: String,
+        ) {
+            listener?.onServiceConnectionFailed(attemptId, message)
         }
 
         fun disconnect(attemptId: Int) {
@@ -314,26 +425,34 @@ class ShizukuFileClientTest {
         private var now = 0L
         private var nextSequence = 0L
 
-        override fun schedule(delayMillis: Long, action: () -> Unit): ScheduledTask {
-            val entry = Entry(
-                dueAt = now + delayMillis.coerceAtLeast(0L),
-                sequence = nextSequence++,
-                action = action,
-            )
+        override fun schedule(
+            delayMillis: Long,
+            action: () -> Unit,
+        ): ScheduledTask {
+            val entry =
+                Entry(
+                    dueAt = now + delayMillis.coerceAtLeast(0L),
+                    sequence = nextSequence++,
+                    action = action,
+                )
             entries += entry
             return ScheduledTask { entry.cancelled = true }
         }
+
+        val cancelledTasks: Int
+            get() = entries.count { it.cancelled }
 
         fun advanceBy(durationMillis: Long) {
             require(durationMillis >= 0L)
             val target = now + durationMillis
 
             while (true) {
-                val next = entries
-                    .asSequence()
-                    .filter { !it.cancelled && it.dueAt <= target }
-                    .minWithOrNull(compareBy<Entry> { it.dueAt }.thenBy { it.sequence })
-                    ?: break
+                val next =
+                    entries
+                        .asSequence()
+                        .filter { !it.cancelled && it.dueAt <= target }
+                        .minWithOrNull(compareBy<Entry> { it.dueAt }.thenBy { it.sequence })
+                        ?: break
 
                 entries.remove(next)
                 now = next.dueAt
@@ -349,16 +468,36 @@ class ShizukuFileClientTest {
         private val alive: Boolean = true,
     ) : UserServiceFiles {
         override fun isAlive(): Boolean = alive
-        override fun copyFile(source: String, destination: String): Boolean = true
-        override fun replaceFile(source: String, destination: String): Boolean = true
+
+        override fun copyFile(
+            source: String,
+            destination: String,
+        ): Boolean = true
+
+        override fun replaceFile(
+            source: String,
+            destination: String,
+        ): Boolean = true
+
         override fun deleteFile(path: String): Boolean = true
+
         override fun exists(path: String): Boolean = true
+
         override fun mkdirs(path: String): Boolean = true
+
         override fun listFiles(path: String): Array<String> = emptyArray()
+
         override fun readText(path: String): String = ""
-        override fun writeTextAtomic(path: String, content: String): Boolean = true
+
+        override fun writeTextAtomic(
+            path: String,
+            content: String,
+        ): Boolean = true
+
         override fun sha1(path: String): String = ""
+
         override fun sha256(path: String): String = ""
+
         override fun lastError(): String = ""
     }
 }

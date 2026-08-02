@@ -17,3 +17,5 @@ app/.cxx/
 # Reverse-engineering inputs stay local.
 bin/
 decompiled/
+
+plans/
