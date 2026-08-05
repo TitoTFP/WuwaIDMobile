@@ -34,7 +34,6 @@ data class InstallInspection(
     val anyOwnedPatch: Boolean,
     val currentHealthy: Boolean,
     val matchesLatest: Boolean,
-    val currentSha256: String?,
     val diagnostics: List<String>,
 )
 
@@ -79,7 +78,6 @@ class GamePaths(
                 anyOwnedPatch = anyOwned,
                 currentHealthy = false,
                 matchesLatest = false,
-                currentSha256 = null,
                 diagnostics = listOf("Game: data resource belum siap"),
             )
         }
@@ -117,7 +115,6 @@ class GamePaths(
             anyOwnedPatch = anyOwned,
             currentHealthy = healthy,
             matchesLatest = healthy && latest != null && sha256.equals(latest.sha256, ignoreCase = true),
-            currentSha256 = sha256.takeIf(String::isNotBlank),
             diagnostics = diagnostics,
         )
     }
