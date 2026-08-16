@@ -508,7 +508,7 @@ class MainActivity : Activity() {
 
     private fun launchGame() {
         val targetPackage =
-            detectedGamePackage
+            detectedGamePackage?.takeIf { packageManager.getLaunchIntentForPackage(it) != null }
                 ?: GamePaths.SUPPORTED_PACKAGES.firstOrNull { packageManager.getLaunchIntentForPackage(it) != null }
                 ?: GamePaths.PACKAGE_GLOBAL
         val intent = packageManager.getLaunchIntentForPackage(targetPackage)

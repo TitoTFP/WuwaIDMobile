@@ -161,7 +161,7 @@ internal class RootFileClient internal constructor(
             allowedPrefixes
                 .first { absolute == it || absolute.startsWith("$it/") }
                 .let { absolute.removePrefix(it).removePrefix("/") }
-        require(relative.split('/').none { it.isEmpty() || it == "." || it == ".." }) { "Path tidak valid" }
+        require(relative.isEmpty() || relative.split('/').none { it.isEmpty() || it == "." || it == ".." }) { "Path tidak valid" }
         return absolute.toByteArray(StandardCharsets.UTF_8).also {
             require(it.size <= MAX_FIELD) { "Path terlalu panjang" }
         }
