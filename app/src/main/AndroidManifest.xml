@@ -7,6 +7,7 @@
 
     <queries>
         <package android:name="com.kurogame.wutheringwaves.global" />
+        <package android:name="com.kurogame.wutheringwaves.samsung" />
         <package android:name="moe.shizuku.privileged.api" />
     </queries>
 

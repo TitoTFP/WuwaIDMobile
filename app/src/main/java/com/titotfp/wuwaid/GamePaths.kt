@@ -2,7 +2,11 @@ package com.titotfp.wuwaid
 
 import java.util.Locale
 
-data class SemVer(val major: Int, val minor: Int, val patch: Int) : Comparable<SemVer> {
+data class SemVer(
+    val major: Int,
+    val minor: Int,
+    val patch: Int,
+) : Comparable<SemVer> {
     override fun compareTo(other: SemVer): Int = compareValuesBy(this, other, SemVer::major, SemVer::minor, SemVer::patch)
 
     companion object {
@@ -35,24 +39,41 @@ data class InstallInspection(
     val currentHealthy: Boolean,
     val matchesLatest: Boolean,
     val diagnostics: List<String>,
+    val gamePackage: String = GamePaths.PACKAGE_GLOBAL,
 )
 
 class GamePaths(
     private val files: PrivilegedFiles,
-    private val resourcesRoot: String = RESOURCES_ROOT,
+    customResourcesRoot: String? = null,
     private val backendLabel: String = "Shizuku",
 ) {
-    fun resourceVersions(): List<String> = files.listFiles(resourcesRoot)
-        .filter { SemVer.parse(it) != null }
-        .sortedBy { SemVer.parse(it) }
+    val gamePackage: String
+    val resourcesRoot: String
+    private val isCustomResourcesRoot: Boolean = customResourcesRoot != null
 
-    fun resolveResourceVersion(): String? = resourceVersions()
-        .filter { files.exists("$resourcesRoot/$it/ResManifest") }
-        .maxByOrNull { SemVer.parse(it)!! }
+    init {
+        if (customResourcesRoot != null) {
+            this.resourcesRoot = customResourcesRoot
+            this.gamePackage = SUPPORTED_PACKAGES.firstOrNull { customResourcesRoot.contains(it) } ?: PACKAGE_GLOBAL
+        } else {
+            val detected = resolvePackage(files)
+            this.gamePackage = detected
+            this.resourcesRoot = resourcesRoot(detected)
+        }
+    }
 
-    fun paths(version: String): PatchPaths {
+    fun resourceVersions(): List<String> = resourceVersions(files, resourcesRoot)
+
+    fun resolveResourceVersion(): String? = resolveResourceVersion(files, resourcesRoot)
+
+    fun paths(version: String): PatchPaths = pathsForRoot(resourcesRoot, version)
+
+    private fun pathsForRoot(
+        root: String,
+        version: String,
+    ): PatchPaths {
         require(SemVer.parse(version) != null) { "Versi resource tidak valid" }
-        val directory = "$resourcesRoot/$version/$PATCH_FOLDER"
+        val directory = "$root/$version/$PATCH_FOLDER"
         val base = PATCH_FILENAME.removeSuffix(".pak")
         return PatchPaths(
             resourceVersion = version,
@@ -60,17 +81,18 @@ class GamePaths(
             pak = "$directory/$PATCH_FILENAME",
             stagedPak = "$directory/$PATCH_FILENAME.new",
             signature = "$directory/$base.sig",
-            mount = "$resourcesRoot/$version/Mount/$MOUNT_FILENAME",
+            mount = "$root/$version/Mount/$MOUNT_FILENAME",
         )
     }
 
     fun inspect(latest: PatchRelease?): InstallInspection {
         val version = resolveResourceVersion()
         val versions = resourceVersions()
-        val anyOwned = versions.any { version ->
-            val target = paths(version)
-            ownedArtifactPaths(target).any(files::exists) || files.exists(target.directory)
-        }
+        val anyOwned =
+            versions.any { version ->
+                val target = paths(version)
+                ownedArtifactPaths(target).any(files::exists) || files.exists(target.directory)
+            }
         if (version == null) {
             return InstallInspection(
                 resourceVersion = null,
@@ -79,6 +101,7 @@ class GamePaths(
                 currentHealthy = false,
                 matchesLatest = false,
                 diagnostics = listOf("Game: data resource belum siap"),
+                gamePackage = gamePackage,
             )
         }
 
@@ -90,24 +113,34 @@ class GamePaths(
         val pakSha1 = if (pakExists) files.sha1(target.pak).uppercase(Locale.ROOT) else ""
         val sigSha1 = if (sigExists) files.sha1(target.signature).uppercase(Locale.ROOT) else ""
         val sha256 = if (pakExists) files.sha256(target.pak).lowercase(Locale.ROOT) else ""
-        val expectedMount = if (pakSha1.isNotEmpty() && sigSha1.isNotEmpty()) {
-            mountContent(pakSha1, sigSha1)
-        } else {
-            ""
-        }
+        val expectedMount =
+            if (pakSha1.isNotEmpty() && sigSha1.isNotEmpty()) {
+                mountContent(pakSha1, sigSha1)
+            } else {
+                ""
+            }
         val actualMount = if (mountExists) normalize(files.readText(target.mount)) else ""
         val healthy = pakExists && sigExists && mountExists && expectedMount == actualMount
 
-        val diagnostics = buildList {
-            add("$backendLabel file service: siap")
-            add("Game package: $GAME_PACKAGE")
-            add("Resource version: $version")
-            add("PAK: ${if (pakExists) "ada" else "tidak ada"}")
-            add("SIG: ${if (sigExists) "ada" else "tidak ada"}")
-            add("Mount: ${if (healthy) "valid" else if (mountExists) "tidak cocok" else "tidak ada"}")
-            if (sha256.isNotBlank()) add("SHA-256: $sha256")
-            if (conflicts.isNotEmpty()) add("Konflik: ${conflicts.joinToString()}")
-        }
+        val diagnostics =
+            buildList {
+                add("$backendLabel file service: siap")
+                add("Game package: $gamePackage")
+                add("Resource version: $version")
+                add("PAK: ${if (pakExists) "ada" else "tidak ada"}")
+                add("SIG: ${if (sigExists) "ada" else "tidak ada"}")
+                add(
+                    "Mount: ${if (healthy) {
+                        "valid"
+                    } else if (mountExists) {
+                        "tidak cocok"
+                    } else {
+                        "tidak ada"
+                    }}",
+                )
+                if (sha256.isNotBlank()) add("SHA-256: $sha256")
+                if (conflicts.isNotEmpty()) add("Konflik: ${conflicts.joinToString()}")
+            }
 
         return InstallInspection(
             resourceVersion = version,
@@ -116,10 +149,14 @@ class GamePaths(
             currentHealthy = healthy,
             matchesLatest = healthy && latest != null && sha256.equals(latest.sha256, ignoreCase = true),
             diagnostics = diagnostics,
+            gamePackage = gamePackage,
         )
     }
 
-    fun install(externalPatchPath: String, release: PatchRelease) {
+    fun install(
+        externalPatchPath: String,
+        release: PatchRelease,
+    ) {
         val version = resolveResourceVersion() ?: error("Data resource game belum siap")
         val conflicts = detectConflicts(version)
         check(conflicts.isEmpty()) { "Patch lain terdeteksi: ${conflicts.joinToString()}" }
@@ -128,11 +165,12 @@ class GamePaths(
 
         val stagedSignature = "${target.signature}.new"
         val stagedMount = "${target.mount}.new"
-        val artifacts = listOf(
-            InstallArtifact(target = target.pak, staged = target.stagedPak, backup = "${target.pak}.bak"),
-            InstallArtifact(target = target.signature, staged = stagedSignature, backup = "${target.signature}.bak"),
-            InstallArtifact(target = target.mount, staged = stagedMount, backup = "${target.mount}.bak"),
-        )
+        val artifacts =
+            listOf(
+                InstallArtifact(target = target.pak, staged = target.stagedPak, backup = "${target.pak}.bak"),
+                InstallArtifact(target = target.signature, staged = stagedSignature, backup = "${target.signature}.bak"),
+                InstallArtifact(target = target.mount, staged = stagedMount, backup = "${target.mount}.bak"),
+            )
         cleanupTemporaryArtifacts(artifacts)
 
         try {
@@ -144,8 +182,9 @@ class GamePaths(
                 "SHA-256 berubah setelah patch disalin ke game"
             }
 
-            val officialSig = findOfficialSignature(version)
-                ?: error("Tidak menemukan file .sig resmi untuk dikloning")
+            val officialSig =
+                findOfficialSignature(version)
+                    ?: error("Tidak menemukan file .sig resmi untuk dikloning")
             check(files.copyFile(officialSig, stagedSignature)) {
                 operationError("Tidak bisa mengkloning .sig")
             }
@@ -189,13 +228,21 @@ class GamePaths(
 
     fun uninstall(): Int {
         var removed = 0
-        for (version in resourceVersions()) {
-            val target = paths(version)
-            for (path in ownedArtifactPaths(target)) {
-                if (files.exists(path) && files.deleteFile(path)) removed++
+        val targetRoots =
+            if (isCustomResourcesRoot) {
+                listOf(resourcesRoot)
+            } else {
+                SUPPORTED_PACKAGES.map { resourcesRoot(it) }
             }
-            if (files.exists(target.directory) && files.deleteFile(target.directory)) {
-                removed++
+        for (root in targetRoots) {
+            for (version in resourceVersions(files, root)) {
+                val target = pathsForRoot(root, version)
+                for (path in ownedArtifactPaths(target)) {
+                    if (files.exists(path) && files.deleteFile(path)) removed++
+                }
+                if (files.exists(target.directory) && files.deleteFile(target.directory)) {
+                    removed++
+                }
             }
         }
         return removed
@@ -211,11 +258,13 @@ class GamePaths(
         for (name in files.listFiles(mountDirectory).filter { it.endsWith(".txt", ignoreCase = true) }) {
             if (name.equals(MOUNT_FILENAME, ignoreCase = true)) continue
             val content = normalize(files.readText("$mountDirectory/$name"))
-            val knownVietnam = name.contains("wuwaviethoa", ignoreCase = true) ||
-                content.contains("wuwavh", ignoreCase = true) ||
-                content.contains("wuwaviethoa", ignoreCase = true)
-            val customHighPriority = !name.startsWith("MountLang_", ignoreCase = true) &&
-                content.lineSequence().any(::isHighPriorityMountLine)
+            val knownVietnam =
+                name.contains("wuwaviethoa", ignoreCase = true) ||
+                    content.contains("wuwavh", ignoreCase = true) ||
+                    content.contains("wuwaviethoa", ignoreCase = true)
+            val customHighPriority =
+                !name.startsWith("MountLang_", ignoreCase = true) &&
+                    content.lineSequence().any(::isHighPriorityMountLine)
             if (knownVietnam || customHighPriority) conflicts += "Mount/$name"
         }
         val officialEnglishMount = "$mountDirectory/MountLang_en.txt"
@@ -225,19 +274,25 @@ class GamePaths(
         return conflicts.toList()
     }
 
-    fun mountContent(pakSha1: String, sigSha1: String): String = buildString {
-        append("::Mount::\n")
-        append("$PATCH_FOLDER/${PATCH_FILENAME.removeSuffix(".pak")},99,$pakSha1,$sigSha1,,\n")
-        append("::Del::\n")
-    }
+    fun mountContent(
+        pakSha1: String,
+        sigSha1: String,
+    ): String =
+        buildString {
+            append("::Mount::\n")
+            append("$PATCH_FOLDER/${PATCH_FILENAME.removeSuffix(".pak")},99,$pakSha1,$sigSha1,,\n")
+            append("::Del::\n")
+        }
 
     private fun findOfficialSignature(version: String): String? {
         val englishRoot = "$resourcesRoot/$version/Lang_en"
         val directories = files.listFiles(englishRoot).map { "$englishRoot/$it" }.toMutableList()
         directories += "$resourcesRoot/$version/Resource/Base"
         for (directory in directories) {
-            val signature = files.listFiles(directory)
-                .firstOrNull { it.endsWith(".sig", ignoreCase = true) && !it.startsWith(PATCH_FILENAME.removeSuffix(".pak")) }
+            val signature =
+                files
+                    .listFiles(directory)
+                    .firstOrNull { it.endsWith(".sig", ignoreCase = true) && !it.startsWith(PATCH_FILENAME.removeSuffix(".pak")) }
             if (signature != null) return "$directory/$signature"
         }
         return null
@@ -287,9 +342,11 @@ class GamePaths(
     }
 
     private fun cleanupTemporaryArtifacts(artifacts: List<InstallArtifact>) {
-        artifacts.flatMap { artifact ->
-            listOf(artifact.staged, "${artifact.staged}.tmp", artifact.backup)
-        }.distinct().forEach(files::deleteFile)
+        artifacts
+            .flatMap { artifact ->
+                listOf(artifact.staged, "${artifact.staged}.tmp", artifact.backup)
+            }.distinct()
+            .forEach(files::deleteFile)
     }
 
     private fun ownedArtifactPaths(target: PatchPaths): List<String> {
@@ -336,12 +393,50 @@ class GamePaths(
     )
 
     companion object {
-        const val GAME_PACKAGE = "com.kurogame.wutheringwaves.global"
+        const val PACKAGE_GLOBAL = "com.kurogame.wutheringwaves.global"
+        const val PACKAGE_SAMSUNG = "com.kurogame.wutheringwaves.samsung"
+        val SUPPORTED_PACKAGES = listOf(PACKAGE_GLOBAL, PACKAGE_SAMSUNG)
+
+        const val GAME_PACKAGE = PACKAGE_GLOBAL
         const val GAME_ROOT = "/storage/emulated/0/Android/data/$GAME_PACKAGE"
         const val RESOURCES_ROOT = "$GAME_ROOT/files/UE4Game/Client/Client/Saved/Resources"
         const val PATCH_FOLDER = "wuwaindonesia"
         const val PATCH_FILENAME = "WuWaID_99_P.pak"
         const val MOUNT_FILENAME = "wuwaindonesia.txt"
+
+        fun gameRoot(packageName: String): String = "/storage/emulated/0/Android/data/$packageName"
+
+        fun resourcesRoot(packageName: String): String = "${gameRoot(packageName)}/files/UE4Game/Client/Client/Saved/Resources"
+
+        fun resourceVersions(
+            files: PrivilegedFiles,
+            root: String,
+        ): List<String> =
+            files
+                .listFiles(root)
+                .filter { SemVer.parse(it) != null }
+                .sortedBy { SemVer.parse(it) }
+
+        fun resolveResourceVersion(
+            files: PrivilegedFiles,
+            root: String,
+        ): String? =
+            resourceVersions(files, root)
+                .filter { files.exists("$root/$it/ResManifest") }
+                .maxByOrNull { SemVer.parse(it)!! }
+
+        fun resolvePackage(files: PrivilegedFiles): String {
+            for (pkg in SUPPORTED_PACKAGES) {
+                if (resolveResourceVersion(files, resourcesRoot(pkg)) != null) return pkg
+            }
+            for (pkg in SUPPORTED_PACKAGES) {
+                val root = resourcesRoot(pkg)
+                if (resourceVersions(files, root).isNotEmpty() || files.exists(root) || files.exists(gameRoot(pkg))) {
+                    return pkg
+                }
+            }
+            return PACKAGE_GLOBAL
+        }
 
         fun normalize(text: String): String = text.replace("\r\n", "\n")
 

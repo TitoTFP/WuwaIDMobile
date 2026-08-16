@@ -26,7 +26,7 @@ WuwaID Mobile adalah launcher Android komunitas untuk memasang, memperbarui, mem
 
 ## Persyaratan
 
-- Wuthering Waves Global (`com.kurogame.wutheringwaves.global`).
+- Wuthering Waves Global (`com.kurogame.wutheringwaves.global`) atau Galaxy Store (`com.kurogame.wutheringwaves.samsung`).
 - Android dengan ABI `arm64-v8a`.
 - Salah satu akses berikut:
   - root dan izin root untuk WuwaID Mobile; atau

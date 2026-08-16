@@ -64,9 +64,11 @@ internal class RootFileClient internal constructor(
 
     private val allowedPrefixes =
         buildList {
-            add("/storage/emulated/0/Android/data/${GamePaths.GAME_PACKAGE}")
-            add("/data/data/${GamePaths.GAME_PACKAGE}")
-            add("/data/user/0/${GamePaths.GAME_PACKAGE}")
+            for (pkg in GamePaths.SUPPORTED_PACKAGES) {
+                add(GamePaths.gameRoot(pkg))
+                add("/data/data/$pkg")
+                add("/data/user/0/$pkg")
+            }
             context.getExternalFilesDir(null)?.canonicalPath?.let { add(it.substringBefore("/files")) }
         }.distinct()
 
@@ -159,7 +161,7 @@ internal class RootFileClient internal constructor(
             allowedPrefixes
                 .first { absolute == it || absolute.startsWith("$it/") }
                 .let { absolute.removePrefix(it).removePrefix("/") }
-        require(relative.split('/').none { it.isEmpty() || it == "." || it == ".." }) { "Path tidak valid" }
+        require(relative.isEmpty() || relative.split('/').none { it.isEmpty() || it == "." || it == ".." }) { "Path tidak valid" }
         return absolute.toByteArray(StandardCharsets.UTF_8).also {
             require(it.size <= MAX_FIELD) { "Path terlalu panjang" }
         }

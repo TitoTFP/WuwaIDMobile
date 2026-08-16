@@ -11,6 +11,8 @@ signing.properties
 # Local development and agent artifacts.
 .codegraph/
 .pi-subagents/
+.kotlin/
+.pi-glla/
 PLAN.md
 app/.cxx/
 

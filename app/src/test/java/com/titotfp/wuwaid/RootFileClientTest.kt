@@ -53,6 +53,15 @@ class RootFileClientTest {
         assertEquals(listOf("b", "a"), client(helper).listFiles("$gameRoot/files").toList())
     }
 
+    @Test fun allowsSamsungPackagePath() {
+        val helper = FakeHelper()
+        helper.handler = { success(byteArrayOf(1)) }
+        val samsungRoot = "/storage/emulated/0/Android/data/${GamePaths.PACKAGE_SAMSUNG}"
+        assertTrue(client(helper).exists(samsungRoot))
+        assertTrue(client(helper).exists("$samsungRoot/files/a"))
+        assertEquals(2, helper.requests.size)
+    }
+
     @Test fun malformedResponseFailsClosed() {
         val helper = FakeHelper()
         helper.handler = { RootFileClient.ProcessResult(0, byteArrayOf(1, 2), "") }
