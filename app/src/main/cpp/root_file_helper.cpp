@@ -21,7 +21,10 @@ constexpr uint16_t kVersion = 1;
 constexpr uint32_t kMaxField = 1024 * 1024;
 constexpr uint32_t kMaxFrame = 8 * 1024 * 1024;
 constexpr uint32_t kMaxPayload = 16 * 1024 * 1024;
-constexpr std::string_view kPackage = "com.kurogame.wutheringwaves.global";
+constexpr std::array<std::string_view, 2> kPackages = {
+    "com.kurogame.wutheringwaves.global",
+    "com.kurogame.wutheringwaves.samsung",
+};
 #ifndef WUWA_APP_PACKAGE
 #define WUWA_APP_PACKAGE "com.titotfp.wuwaid"
 #endif
@@ -78,12 +81,13 @@ int fail(int error, std::string_view message) { return send_response(false, erro
 
 struct RootPath { int fd{-1}; std::string relative; };
 std::vector<std::string> roots() {
-    std::vector<std::string> result{
-        "/storage/emulated/0/Android/data/" + std::string(kPackage),
-        "/data/data/" + std::string(kPackage),
-        "/data/user/0/" + std::string(kPackage),
-        "/storage/emulated/0/Android/data/" + std::string(kAppPackage),
-    };
+    std::vector<std::string> result;
+    for (const auto& pkg : kPackages) {
+        result.push_back("/storage/emulated/0/Android/data/" + std::string(pkg));
+        result.push_back("/data/data/" + std::string(pkg));
+        result.push_back("/data/user/0/" + std::string(pkg));
+    }
+    result.push_back("/storage/emulated/0/Android/data/" + std::string(kAppPackage));
 #ifdef WUWA_HOST_TEST
     if (const char* test_root = getenv("WUWA_TEST_ROOT")) result.emplace_back(test_root);
 #endif

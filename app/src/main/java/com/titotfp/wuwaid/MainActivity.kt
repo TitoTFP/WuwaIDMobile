@@ -46,6 +46,9 @@ class MainActivity : Activity() {
     @Volatile
     private var busy = false
 
+    @Volatile
+    private var detectedGamePackage: String? = null
+
     private var currentStatus = LauncherStatus.ERROR
     private var canUninstall = false
     private var diagnostics = "Belum diperiksa"
@@ -182,6 +185,7 @@ class MainActivity : Activity() {
             runOnUiThread {
                 currentStatus = state
                 canUninstall = inspection?.anyOwnedPatch == true
+                detectedGamePackage = inspection?.gamePackage
                 diagnostics = diagnosticLines.joinToString("\n")
                 renderState(state, inputs, networkMessage)
                 renderRelease(release, networkMessage.takeIf(String::isNotBlank))
@@ -503,9 +507,13 @@ class MainActivity : Activity() {
     }
 
     private fun launchGame() {
-        val intent = packageManager.getLaunchIntentForPackage(GamePaths.GAME_PACKAGE)
+        val targetPackage =
+            detectedGamePackage
+                ?: GamePaths.SUPPORTED_PACKAGES.firstOrNull { packageManager.getLaunchIntentForPackage(it) != null }
+                ?: GamePaths.PACKAGE_GLOBAL
+        val intent = packageManager.getLaunchIntentForPackage(targetPackage)
         if (intent == null) {
-            toast("Wuthering Waves Global tidak ditemukan")
+            toast("Wuthering Waves tidak ditemukan")
             return
         }
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)

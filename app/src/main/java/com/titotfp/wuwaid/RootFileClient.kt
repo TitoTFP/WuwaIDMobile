@@ -64,9 +64,11 @@ internal class RootFileClient internal constructor(
 
     private val allowedPrefixes =
         buildList {
-            add("/storage/emulated/0/Android/data/${GamePaths.GAME_PACKAGE}")
-            add("/data/data/${GamePaths.GAME_PACKAGE}")
-            add("/data/user/0/${GamePaths.GAME_PACKAGE}")
+            for (pkg in GamePaths.SUPPORTED_PACKAGES) {
+                add(GamePaths.gameRoot(pkg))
+                add("/data/data/$pkg")
+                add("/data/user/0/$pkg")
+            }
             context.getExternalFilesDir(null)?.canonicalPath?.let { add(it.substringBefore("/files")) }
         }.distinct()
 
