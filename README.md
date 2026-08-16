@@ -44,6 +44,35 @@ WuwaID Mobile adalah launcher Android komunitas untuk memasang, memperbarui, mem
 
 > Selalu tutup game saat memasang, memperbarui, atau menghapus patch.
 
+## Panduan & Troubleshooting Shizuku
+
+Bagi pengguna non-root yang menggunakan Shizuku, beberapa sistem operasi Android / ROM vendor memerlukan konfigurasi tambahan:
+
+### 1. Xiaomi / POCO / Redmi (MIUI & HyperOS)
+
+- **Gejala:** Izin Shizuku ditolak atau gagal memberikan izin IPC.
+- **Solusi:**
+  1. Buka **Setelan (Settings)** > **Opsi Pengembang (Developer Options)**.
+  2. Pastikan **USB Debugging** aktif.
+  3. Wajib aktifkan juga **USB Debugging (Security settings)** / *Debugging USB (Setelan keamanan)* (memerlukan akun Mi).
+  4. Buka kembali Shizuku dan berikan izin untuk WuwaID Mobile.
+
+### 2. Infinix / TECNO / itel (XOS & HiOS)
+
+- **Gejala:** Status tertahan di *"Menghubungkan Shizuku: UserService belum siap"* atau timeout 10 detik.
+- **Solusi:**
+  1. Buka **Pengaturan** > **Manajemen Baterai / Daya** > **Optimasi Baterai**.
+  2. Pilih **Shizuku** dan **WuwaID Mobile**, atur ke **Jangan Optimalkan (Don't optimize / No restrictions)** agar proses latar belakang tidak dibekukan.
+  3. Di **Opsi Pengembang**, matikan pembatasan proses background (*Disable child process restrictions*) jika tersedia.
+
+### 3. Android 15 & Android 16 (API 35 & 36)
+
+- **Gejala:** Shizuku aktif (Running) namun service tidak merespons.
+- **Solusi:**
+  1. Buka aplikasi **Shizuku**, tekan tombol **Stop**.
+  2. Jalankan ulang Shizuku melalui **Wireless Debugging** (lakukan pairing ulang jika koneksi terputus).
+  3. Kembali ke WuwaID Mobile dan tekan tombol **Hubungkan ulang**.
+
 ## Build dari source
 
 Butuh JDK 17, Android SDK 35, NDK `27.0.12077973`, dan CMake 3.22.1.

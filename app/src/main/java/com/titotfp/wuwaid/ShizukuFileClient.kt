@@ -264,6 +264,7 @@ internal class ShizukuFileClient internal constructor(
         pendingBind?.cancel()
         pendingTimeout?.cancel()
         pendingTimeout = null
+        onStateChanged()
 
         pendingBind =
             scheduler.schedule(delayMillis) {

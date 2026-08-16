@@ -230,6 +230,7 @@ class MainActivity : Activity() {
         when {
             !shizuku.isAvailable() -> openShizukuManager()
             !shizuku.hasPermission() -> shizuku.requestPermission()
+            shizuku.isBinding() -> return
             else -> shizuku.reconnect()
         }
         root.invalidateProbe()
@@ -552,18 +553,51 @@ class MainActivity : Activity() {
                         }
 
                         !inputs.shizukuPermission -> {
+                            val vendorHint =
+                                VendorGuidance.getGuidance(
+                                    VendorGuidance.IssueType.SHIZUKU_PERMISSION_DENIED,
+                                    Build.MANUFACTURER,
+                                    Build.BRAND,
+                                )
+                            val hintDetail =
+                                if (vendorHint != null) {
+                                    "Izin Shizuku diperlukan. $vendorHint"
+                                } else {
+                                    "WuwaID hanya memakai izin untuk folder data Wuthering Waves."
+                                }
                             StatusUi(
                                 "Izin Shizuku diperlukan",
-                                "WuwaID hanya memakai izin untuk folder data Wuthering Waves.",
+                                hintDetail,
                                 "Beri izin Shizuku",
                                 R.color.warning,
                             )
                         }
 
-                        else -> {
+                        shizuku.isBinding() -> {
                             StatusUi(
                                 "Menghubungkan Shizuku",
-                                "UserService belum siap. Tekan tombol untuk mencoba lagi.",
+                                "Sedang menghubungkan ke UserService… Mohon tunggu.",
+                                "Menghubungkan…",
+                                R.color.accent,
+                            )
+                        }
+
+                        else -> {
+                            val vendorHint =
+                                VendorGuidance.getGuidance(
+                                    VendorGuidance.IssueType.SHIZUKU_SERVICE_TIMEOUT,
+                                    Build.MANUFACTURER,
+                                    Build.BRAND,
+                                )
+                            val hintDetail =
+                                if (vendorHint != null) {
+                                    "UserService belum siap. $vendorHint"
+                                } else {
+                                    "UserService belum siap. Tekan tombol untuk mencoba lagi."
+                                }
+                            StatusUi(
+                                "Menghubungkan Shizuku",
+                                hintDetail,
                                 "Hubungkan ulang",
                                 R.color.warning,
                             )
@@ -631,6 +665,7 @@ class MainActivity : Activity() {
         binding.primaryButton.isEnabled =
             when (state) {
                 LauncherStatus.BUSY, LauncherStatus.CONFLICT -> false
+                LauncherStatus.NEEDS_SHIZUKU -> !inputs.shizukuPermission || !inputs.shizukuAvailable || !shizuku.isBinding()
                 LauncherStatus.NOT_INSTALLED, LauncherStatus.UPDATE_AVAILABLE -> releaseVerifiedOnline
                 else -> true
             }
@@ -739,6 +774,20 @@ class MainActivity : Activity() {
     private fun diagnosticReport(): String =
         buildString {
             append(diagnostics)
+            val permHint =
+                VendorGuidance.getGuidance(
+                    VendorGuidance.IssueType.SHIZUKU_PERMISSION_DENIED,
+                    Build.MANUFACTURER,
+                    Build.BRAND,
+                )
+            val timeoutHint =
+                VendorGuidance.getGuidance(
+                    VendorGuidance.IssueType.SHIZUKU_SERVICE_TIMEOUT,
+                    Build.MANUFACTURER,
+                    Build.BRAND,
+                )
+            if (permHint != null) append("\nPetunjuk Vendor (Izin): $permHint")
+            if (timeoutHint != null) append("\nPetunjuk Vendor (Timeout): $timeoutHint")
             append("\n\nPerangkat: ${Build.MANUFACTURER} ${Build.MODEL}")
             append("\nAndroid: ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
             append("\nBuild ROM: ${Build.DISPLAY}")

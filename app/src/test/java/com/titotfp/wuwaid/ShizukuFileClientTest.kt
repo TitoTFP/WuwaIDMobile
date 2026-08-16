@@ -311,6 +311,23 @@ class ShizukuFileClientTest {
         assertEquals(listOf(1), fixture.gateway.bindAttempts)
     }
 
+    @Test
+    fun scheduleBindNotifiesStateChangeAndSetsBinding() {
+        val fixture = Fixture(available = true, permission = true)
+        val initialChanges = fixture.stateChanges
+        fixture.client.start()
+        assertTrue(fixture.client.isBinding())
+        assertTrue(fixture.stateChanges > initialChanges)
+
+        val beforeConnectChanges = fixture.stateChanges
+        fixture.scheduler.advanceBy(ShizukuFileClient.INITIAL_BIND_DELAY_MS)
+        fixture.gateway.connect(1, FakeUserServiceFiles())
+
+        assertFalse(fixture.client.isBinding())
+        assertTrue(fixture.client.isReady())
+        assertTrue(fixture.stateChanges > beforeConnectChanges)
+    }
+
     private class Fixture(
         available: Boolean = true,
         permission: Boolean = true,
