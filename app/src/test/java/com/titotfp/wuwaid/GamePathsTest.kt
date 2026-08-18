@@ -25,6 +25,16 @@ class GamePathsTest {
     }
 
     @Test
+    fun ignoresPreDownloadVersionAndKeepsActiveResourceVersion() {
+        val fixture = fixture()
+        fixture.readyVersion("3.5.0")
+        fixture.preDownloadVersion("3.6.0")
+
+        assertEquals("3.5.0", fixture.paths.resolveResourceVersion())
+        assertTrue(fixture.paths.inspect(null).diagnostics.any { it.contains("3.6.0") })
+    }
+
+    @Test
     fun installsVerifiesMountAndCleansOnlyOwnedOldFiles() {
         val fixture = fixture()
         fixture.readyVersion("3.5.0")
@@ -133,6 +143,9 @@ class GamePathsTest {
         assertFalse(File(target.pak).exists())
         assertFalse(File(target.signature).exists())
         assertFalse(File(target.mount).exists())
+        assertTrue(fixture.paths.inspect(null).anyOwnedPatch)
+        assertEquals(1, fixture.paths.uninstall())
+        assertFalse(File(target.directory).exists())
         fixture.assertNoTemporaryArtifacts("3.5.1")
     }
 
@@ -276,6 +289,11 @@ class GamePathsTest {
         val engineFiles = EngineFiles(engine)
 
         File(samsungResources, "3.5.0/ResManifest").mkdirs()
+        File(samsungResources, "3.5.0/Mount/MountResource.txt").apply {
+            parentFile!!.mkdirs()
+            writeText("official mount")
+        }
+        File(samsungResources, "3.5.0/Resource/Base").mkdirs()
 
         // Test with mocked PrivilegedFiles routing to our test storage
         val mappedFiles =
@@ -359,6 +377,15 @@ class GamePathsTest {
         val paths: GamePaths,
     ) {
         fun readyVersion(version: String) {
+            File(resources, "$version/ResManifest").mkdirs()
+            File(resources, "$version/Mount/MountResource.txt").apply {
+                parentFile!!.mkdirs()
+                writeText("official mount")
+            }
+            File(resources, "$version/Resource/Base").mkdirs()
+        }
+
+        fun preDownloadVersion(version: String) {
             File(resources, "$version/ResManifest").mkdirs()
         }
 
