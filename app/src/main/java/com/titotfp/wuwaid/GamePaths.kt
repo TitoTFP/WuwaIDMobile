@@ -91,7 +91,7 @@ class GamePaths(
         val anyOwned =
             versions.any { version ->
                 val target = paths(version)
-                ownedArtifactPaths(target).any(files::exists)
+                ownedArtifactPaths(target).any(files::exists) || files.exists(target.directory)
             }
         val incompleteVersions = versions.filterNot { isMaterializedResourceVersion(files, resourcesRoot, it) }
         if (version == null) {

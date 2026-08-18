@@ -143,6 +143,9 @@ class GamePathsTest {
         assertFalse(File(target.pak).exists())
         assertFalse(File(target.signature).exists())
         assertFalse(File(target.mount).exists())
+        assertTrue(fixture.paths.inspect(null).anyOwnedPatch)
+        assertEquals(1, fixture.paths.uninstall())
+        assertFalse(File(target.directory).exists())
         fixture.assertNoTemporaryArtifacts("3.5.1")
     }
 
