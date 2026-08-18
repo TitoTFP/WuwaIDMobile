@@ -91,8 +91,9 @@ class GamePaths(
         val anyOwned =
             versions.any { version ->
                 val target = paths(version)
-                ownedArtifactPaths(target).any(files::exists) || files.exists(target.directory)
+                ownedArtifactPaths(target).any(files::exists)
             }
+        val incompleteVersions = versions.filterNot { isMaterializedResourceVersion(files, resourcesRoot, it) }
         if (version == null) {
             return InstallInspection(
                 resourceVersion = null,
@@ -100,7 +101,12 @@ class GamePaths(
                 anyOwnedPatch = anyOwned,
                 currentHealthy = false,
                 matchesLatest = false,
-                diagnostics = listOf("Game: data resource belum siap"),
+                diagnostics = buildList {
+                    add("Game: data resource belum siap")
+                    if (incompleteVersions.isNotEmpty()) {
+                        add("Resource belum lengkap atau pre-download diabaikan: ${incompleteVersions.joinToString()}")
+                    }
+                },
                 gamePackage = gamePackage,
             )
         }
@@ -140,6 +146,9 @@ class GamePaths(
                 )
                 if (sha256.isNotBlank()) add("SHA-256: $sha256")
                 if (conflicts.isNotEmpty()) add("Konflik: ${conflicts.joinToString()}")
+                if (incompleteVersions.isNotEmpty()) {
+                    add("Resource belum lengkap atau pre-download diabaikan: ${incompleteVersions.joinToString()}")
+                }
             }
 
         return InstallInspection(
@@ -286,13 +295,21 @@ class GamePaths(
 
     private fun findOfficialSignature(version: String): String? {
         val englishRoot = "$resourcesRoot/$version/Lang_en"
-        val directories = files.listFiles(englishRoot).map { "$englishRoot/$it" }.toMutableList()
-        directories += "$resourcesRoot/$version/Resource/Base"
+        val resourceRoot = "$resourcesRoot/$version/Resource"
+        val directories = buildList {
+            add(englishRoot)
+            add(resourceRoot)
+            addAll(files.listFiles(englishRoot).map { "$englishRoot/$it" })
+            addAll(files.listFiles(resourceRoot).map { "$resourceRoot/$it" })
+        }
         for (directory in directories) {
             val signature =
                 files
                     .listFiles(directory)
-                    .firstOrNull { it.endsWith(".sig", ignoreCase = true) && !it.startsWith(PATCH_FILENAME.removeSuffix(".pak")) }
+                    .firstOrNull {
+                        it.endsWith(".sig", ignoreCase = true) &&
+                            !it.startsWith(PATCH_FILENAME.removeSuffix(".pak"), ignoreCase = true)
+                    }
             if (signature != null) return "$directory/$signature"
         }
         return null
@@ -422,8 +439,17 @@ class GamePaths(
             root: String,
         ): String? =
             resourceVersions(files, root)
-                .filter { files.exists("$root/$it/ResManifest") }
+                .filter { isMaterializedResourceVersion(files, root, it) }
                 .maxByOrNull { SemVer.parse(it)!! }
+
+        fun isMaterializedResourceVersion(
+            files: PrivilegedFiles,
+            root: String,
+            version: String,
+        ): Boolean =
+            files.exists("$root/$version/ResManifest") &&
+                files.exists("$root/$version/Mount/MountResource.txt") &&
+                files.listFiles("$root/$version/Resource").isNotEmpty()
 
         fun resolvePackage(files: PrivilegedFiles): String {
             for (pkg in SUPPORTED_PACKAGES) {
