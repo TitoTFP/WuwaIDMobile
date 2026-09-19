@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#101722" />
+    <title>WuwaID Mobile</title>
+    <script type="module" src="/src/main.ts" defer></script>
+  </head>
+  <body>
+    <main class="shell" aria-labelledby="app-title">
+      <header class="brand">
+        <div class="brand-mark" aria-hidden="true">W</div>
+        <div>
+          <p class="eyebrow">WuwaID Mobile</p>
+          <h1 id="app-title">Launcher siap dimigrasikan</h1>
+        </div>
+      </header>
+
+      <section class="panel" aria-labelledby="status-title">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Bootstrap</p>
+            <h2 id="status-title">Tauri 2 bridge</h2>
+          </div>
+          <span class="status-badge" data-status="ready">SCAFFOLD</span>
+        </div>
+        <p class="panel-copy">
+          Frontend Vanilla TypeScript sudah terhubung ke build pipeline Tauri.
+          Domain launcher dan operasi privileged akan masuk melalui command Rust
+          bertipe pada tahap berikutnya.
+        </p>
+        <dl class="metadata">
+          <div>
+            <dt>Frontend</dt>
+            <dd>Vanilla TypeScript + CSS</dd>
+          </div>
+          <div>
+            <dt>Native core</dt>
+            <dd>Rust / Tauri 2</dd>
+          </div>
+          <div>
+            <dt>Identity</dt>
+            <dd>com.titotfp.wuwaid</dd>
+          </div>
+        </dl>
+      </section>
+
+      <footer class="footer">
+        <span>Parity-first migration</span>
+        <span aria-hidden="true">•</span>
+        <span>Debug identity memakai suffix .debug</span>
+      </footer>
+    </main>
+  </body>
+</html>
