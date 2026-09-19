@@ -25,3 +25,9 @@ plans/
 # Agent workspace files
 CLAUDE.md
 docs/agents/
+
+# Tauri/Vite frontend and Rust artifacts.
+node_modules/
+dist/
+src-tauri/target/
+src-tauri/gen/schemas/

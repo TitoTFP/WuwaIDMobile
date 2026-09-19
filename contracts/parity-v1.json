@@ -1,0 +1,875 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "contracts/parity-v1.json",
+  "title": "WuwaIDMobile Tauri parity contract",
+  "contract_version": 1,
+  "status": "frozen",
+  "wire": {
+    "json_field_case": "snake_case",
+    "enum_case": "SCREAMING_SNAKE_CASE",
+    "frontend_to_rust": {
+      "transport": "tauri_invoke",
+      "path_arguments_allowed": false,
+      "shell_commands_allowed": false,
+      "only_typed_commands": true
+    },
+    "rust_to_frontend": {
+      "transport": "tauri_event",
+      "events_are_typed": true,
+      "absolute_filesystem_paths_allowed": false
+    },
+    "rust_to_android_plugin": {
+      "transport": "per_operation_synchronous_bridge",
+      "one_operation_per_call": true,
+      "callback_or_stale_result_must_not_mutate_current_state": true
+    }
+  },
+  "rust_dto_mapping": {
+    "serialization": "serde Serialize + Deserialize with explicit field/enum names from this file",
+    "optional": "Option<T> and JSON null",
+    "arrays": "Vec<T>",
+    "byte_counts": "u64",
+    "percent": "u8 constrained to 0..=100",
+    "wire_types": [
+      "LauncherSnapshot",
+      "AccessSnapshot",
+      "GameSnapshot",
+      "ReleaseSummary",
+      "AppUpdateSummary",
+      "OperationProgress",
+      "FsError",
+      "CommandAccepted"
+    ],
+    "internal_only_types": [
+      "PathScope",
+      "PathRef",
+      "FsOperationRequest",
+      "BackendHealth",
+      "RefreshGeneration"
+    ]
+  },
+  "sources": [
+    "app/src/main/java/com/titotfp/wuwaid/MainActivity.kt",
+    "app/src/main/java/com/titotfp/wuwaid/LauncherState.kt",
+    "app/src/main/java/com/titotfp/wuwaid/GamePaths.kt",
+    "app/src/main/java/com/titotfp/wuwaid/PrivilegedFiles.kt",
+    "app/src/main/java/com/titotfp/wuwaid/RootFileClient.kt",
+    "app/src/main/java/com/titotfp/wuwaid/ShizukuFileClient.kt",
+    "app/src/main/java/com/titotfp/wuwaid/ShizukuGateway.kt",
+    "app/src/main/java/com/titotfp/wuwaid/GitHubReleaseClient.kt",
+    "app/src/main/java/com/titotfp/wuwaid/PatchRelease.kt",
+    "app/src/main/java/com/titotfp/wuwaid/AppRelease.kt",
+    "app/src/main/java/com/titotfp/wuwaid/ReleaseStore.kt",
+    "app/src/main/java/com/titotfp/wuwaid/DiagnosticUploadClient.kt",
+    "app/src/main/java/com/titotfp/wuwaid/UpdateApkProvider.kt",
+    "app/src/main/java/com/titotfp/wuwaid/LocalFileEngine.kt",
+    "app/src/main/aidl/com/titotfp/wuwaid/IFileService.aidl",
+    "app/src/main/cpp/root_file_helper.cpp",
+    "app/src/test/java/com/titotfp/wuwaid/*Test.kt",
+    "app/src/test/native/root_helper_security_test.py"
+  ],
+  "$defs": {
+    "LauncherStatus": {
+      "type": "string",
+      "enum": [
+        "NEEDS_SHIZUKU",
+        "GAME_NOT_READY",
+        "CONFLICT",
+        "NOT_INSTALLED",
+        "UPDATE_AVAILABLE",
+        "READY",
+        "BUSY",
+        "ERROR"
+      ]
+    },
+    "BackendKind": {
+      "type": "string",
+      "enum": ["ROOT", "SHIZUKU"]
+    },
+    "GamePackage": {
+      "type": "string",
+      "enum": [
+        "com.kurogame.wutheringwaves.global",
+        "com.kurogame.wutheringwaves.samsung"
+      ]
+    },
+    "ShizukuMode": {
+      "type": ["string", "null"],
+      "enum": ["ROOT_OR_SUI", "ADB_SHELL", "UNKNOWN", null]
+    },
+    "ReleaseSource": {
+      "type": "string",
+      "enum": ["ONLINE", "CACHE"]
+    },
+    "OperationKind": {
+      "type": "string",
+      "enum": [
+        "REFRESH",
+        "CONNECT_SHIZUKU",
+        "DOWNLOAD_PATCH",
+        "INSTALL_PATCH",
+        "DOWNLOAD_APP_UPDATE",
+        "OPEN_APP_INSTALLER",
+        "UNINSTALL_PATCH",
+        "SEND_DIAGNOSTICS"
+      ]
+    },
+    "OperationPhase": {
+      "type": "string",
+      "enum": [
+        "PROBING",
+        "WAITING_FOR_BACKEND",
+        "DOWNLOADING",
+        "INSTALLING",
+        "UNINSTALLING",
+        "UPLOADING",
+        "PREPARING_INSTALLER",
+        "COMPLETED",
+        "FAILED"
+      ]
+    },
+    "FsOperation": {
+      "type": "string",
+      "enum": [
+        "COPY_FILE",
+        "REPLACE_FILE",
+        "DELETE_FILE",
+        "EXISTS",
+        "MKDIRS",
+        "LIST_FILES",
+        "READ_TEXT",
+        "WRITE_TEXT_ATOMIC",
+        "SHA1",
+        "SHA256",
+        "REFRESH",
+        "CONNECT_SHIZUKU",
+        "DOWNLOAD_PATCH",
+        "INSTALL_PATCH",
+        "DOWNLOAD_APP_UPDATE",
+        "OPEN_APP_INSTALLER",
+        "UNINSTALL_PATCH",
+        "SEND_DIAGNOSTICS",
+        "LAUNCH_GAME"
+      ]
+    },
+    "FsErrorCode": {
+      "type": "string",
+      "enum": [
+        "INVALID_PATH",
+        "PATH_NOT_ALLOWED",
+        "NOT_FOUND",
+        "NOT_DIRECTORY",
+        "NOT_REGULAR_FILE",
+        "PERMISSION_DENIED",
+        "BACKEND_UNAVAILABLE",
+        "TIMEOUT",
+        "PROTOCOL_ERROR",
+        "INVALID_RESPONSE",
+        "IO_ERROR",
+        "NETWORK_ERROR",
+        "SIZE_MISMATCH",
+        "CHECKSUM_MISMATCH",
+        "CONFLICT",
+        "TRANSACTION_FAILED",
+        "INVALID_STATE",
+        "CANCELLED",
+        "UNKNOWN"
+      ]
+    },
+    "AccessSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "root_available",
+        "shizuku_available",
+        "shizuku_permission",
+        "shizuku_service_ready",
+        "service_ready",
+        "selected_backend",
+        "binding",
+        "shizuku_mode",
+        "connection_error",
+        "connection_events"
+      ],
+      "properties": {
+        "root_available": {"type": "boolean"},
+        "shizuku_available": {"type": "boolean"},
+        "shizuku_permission": {"type": "boolean"},
+        "shizuku_service_ready": {"type": "boolean"},
+        "service_ready": {"type": "boolean"},
+        "selected_backend": {
+          "anyOf": [
+            {"$ref": "#/$defs/BackendKind"},
+            {"type": "null"}
+          ]
+        },
+        "binding": {"type": "boolean"},
+        "shizuku_mode": {"$ref": "#/$defs/ShizukuMode"},
+        "connection_error": {"type": "string", "maxLength": 512},
+        "connection_events": {
+          "type": "array",
+          "maxItems": 10,
+          "items": {"type": "string", "maxLength": 512}
+        }
+      }
+    },
+    "ReleaseSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tag",
+        "title",
+        "published_at",
+        "notes",
+        "asset_name",
+        "asset_url",
+        "size_bytes",
+        "sha256",
+        "source",
+        "verified_online"
+      ],
+      "properties": {
+        "tag": {"type": "string", "minLength": 1},
+        "title": {"type": "string"},
+        "published_at": {"type": "string"},
+        "notes": {"type": "string"},
+        "asset_name": {"type": "string", "const": "pakchunk0-ID-WindowsNoEditor_1000_P.pak"},
+        "asset_url": {"type": "string", "pattern": "^https://"},
+        "size_bytes": {"type": "integer", "minimum": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "source": {"$ref": "#/$defs/ReleaseSource"},
+        "verified_online": {"type": "boolean"}
+      }
+    },
+    "AppUpdateSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tag",
+        "title",
+        "published_at",
+        "notes",
+        "asset_name",
+        "asset_url",
+        "size_bytes",
+        "sha256",
+        "source",
+        "verified_online"
+      ],
+      "properties": {
+        "tag": {"type": "string", "minLength": 1},
+        "title": {"type": "string"},
+        "published_at": {"type": "string"},
+        "notes": {"type": "string"},
+        "asset_name": {"type": "string", "pattern": "^WuwaID-Mobile-.+\\.apk$"},
+        "asset_url": {"type": "string", "pattern": "^https://"},
+        "size_bytes": {"type": "integer", "minimum": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "source": {"$ref": "#/$defs/ReleaseSource"},
+        "verified_online": {"type": "boolean"}
+      }
+    },
+    "GameSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "package_name",
+        "resource_version",
+        "conflicts",
+        "any_owned_patch",
+        "current_healthy",
+        "matches_latest",
+        "diagnostics"
+      ],
+      "properties": {
+        "package_name": {"$ref": "#/$defs/GamePackage"},
+        "resource_version": {
+          "anyOf": [
+            {"type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$"},
+            {"type": "null"}
+          ]
+        },
+        "conflicts": {
+          "type": "array",
+          "items": {"type": "string", "maxLength": 512}
+        },
+        "any_owned_patch": {"type": "boolean"},
+        "current_healthy": {"type": "boolean"},
+        "matches_latest": {"type": "boolean"},
+        "diagnostics": {
+          "type": "array",
+          "items": {"type": "string", "maxLength": 512}
+        }
+      }
+    },
+    "LauncherSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "access",
+        "game",
+        "release",
+        "app_update",
+        "diagnostics",
+        "busy",
+        "can_uninstall"
+      ],
+      "properties": {
+        "status": {"$ref": "#/$defs/LauncherStatus"},
+        "access": {"$ref": "#/$defs/AccessSnapshot"},
+        "game": {"$ref": "#/$defs/GameSnapshot"},
+        "release": {
+          "anyOf": [
+            {"$ref": "#/$defs/ReleaseSummary"},
+            {"type": "null"}
+          ]
+        },
+        "app_update": {
+          "anyOf": [
+            {"$ref": "#/$defs/AppUpdateSummary"},
+            {"type": "null"}
+          ]
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {"type": "string", "maxLength": 512}
+        },
+        "busy": {"type": "boolean"},
+        "can_uninstall": {"type": "boolean"}
+      }
+    },
+    "OperationProgress": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operation_id",
+        "kind",
+        "phase",
+        "downloaded_bytes",
+        "total_bytes",
+        "percent",
+        "message",
+        "backend"
+      ],
+      "properties": {
+        "operation_id": {"type": "string", "minLength": 1, "maxLength": 128},
+        "kind": {"$ref": "#/$defs/OperationKind"},
+        "phase": {"$ref": "#/$defs/OperationPhase"},
+        "downloaded_bytes": {"type": "integer", "minimum": 0},
+        "total_bytes": {"type": "integer", "minimum": 0},
+        "percent": {"type": "integer", "minimum": 0, "maximum": 100},
+        "message": {"type": "string", "maxLength": 512},
+        "backend": {
+          "anyOf": [
+            {"$ref": "#/$defs/BackendKind"},
+            {"type": "null"}
+          ]
+        }
+      }
+    },
+    "FsError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "operation", "message", "retryable", "backend"],
+      "properties": {
+        "code": {"$ref": "#/$defs/FsErrorCode"},
+        "operation": {"$ref": "#/$defs/FsOperation"},
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "pattern": "^[^\\r\\n\\t]*$"
+        },
+        "retryable": {"type": "boolean"},
+        "backend": {
+          "anyOf": [
+            {"$ref": "#/$defs/BackendKind"},
+            {"type": "null"}
+          ]
+        }
+      }
+    },
+    "CommandAccepted": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation_id"],
+      "properties": {
+        "operation_id": {"type": "string", "minLength": 1, "maxLength": 128}
+      }
+    }
+  },
+  "status_resolution": {
+    "backend_precedence": ["ROOT", "SHIZUKU"],
+    "derived_access": [
+      "root_available = root_probe_success",
+      "available = root_available OR shizuku_available",
+      "permission = root_available OR (available AND shizuku_permission)",
+      "service_ready = root_available OR (permission AND shizuku_service_ready)",
+      "selected_backend = ROOT when root_available; otherwise SHIZUKU when shizuku_service_ready; otherwise null"
+    ],
+    "root_precedence_truth_table": [
+      {
+        "root_available": true,
+        "shizuku_available": false,
+        "shizuku_permission": false,
+        "shizuku_service_ready": false,
+        "effective_available": true,
+        "effective_permission": true,
+        "effective_service_ready": true,
+        "selected_backend": "ROOT",
+        "expected_status_input": "continue to game/resource checks"
+      },
+      {
+        "root_available": false,
+        "shizuku_available": true,
+        "shizuku_permission": true,
+        "shizuku_service_ready": true,
+        "effective_available": true,
+        "effective_permission": true,
+        "effective_service_ready": true,
+        "selected_backend": "SHIZUKU",
+        "expected_status_input": "continue to game/resource checks"
+      },
+      {
+        "root_available": false,
+        "shizuku_available": false,
+        "shizuku_permission": false,
+        "shizuku_service_ready": false,
+        "effective_available": false,
+        "effective_permission": false,
+        "effective_service_ready": false,
+        "selected_backend": null,
+        "expected_status_input": "NEEDS_SHIZUKU"
+      }
+    ],
+    "legacy_input_mapping": {
+      "shizuku_available": "access.root_available OR access.shizuku_available",
+      "shizuku_permission": "access.root_available OR (access.shizuku_available AND access.shizuku_permission)",
+      "service_ready": "access.service_ready",
+      "resource_version": "game.resource_version",
+      "conflicts": "game.conflicts",
+      "any_owned_patch": "game.any_owned_patch",
+      "current_healthy": "game.current_healthy",
+      "release_available": "release != null",
+      "matches_latest": "game.matches_latest"
+    },
+    "base_priority_high_to_low": [
+      {
+        "status": "NEEDS_SHIZUKU",
+        "condition": "NOT service_ready"
+      },
+      {
+        "status": "GAME_NOT_READY",
+        "condition": "resource_version is null"
+      },
+      {
+        "status": "CONFLICT",
+        "condition": "conflicts is not empty"
+      },
+      {
+        "status": "UPDATE_AVAILABLE",
+        "condition": "NOT current_healthy AND any_owned_patch"
+      },
+      {
+        "status": "NOT_INSTALLED",
+        "condition": "NOT current_healthy"
+      },
+      {
+        "status": "UPDATE_AVAILABLE",
+        "condition": "release is present AND NOT matches_latest"
+      },
+      {
+        "status": "READY",
+        "condition": "otherwise"
+      }
+    ],
+    "overrides": [
+      "BUSY is an operation overlay and wins while an operation is active; the base resolver remains available for the next snapshot.",
+      "ERROR is emitted when refresh or inspection fails before a valid base snapshot exists."
+    ],
+    "install_gate": "A cached release may affect display state, but install_patch requires release.verified_online=true."
+  },
+  "commands": [
+    {
+      "name": "refresh",
+      "payload": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["fetch_network"],
+        "properties": {"fetch_network": {"type": "boolean"}}
+      },
+      "returns": "LauncherSnapshot",
+      "side_effects": ["load valid cached release before network", "optionally fetch patch and app release metadata", "probe ROOT before SHIZUKU", "emit launcher.snapshot"]
+    },
+    {
+      "name": "request_shizuku_permission",
+      "payload": {"type": "object", "additionalProperties": false},
+      "returns": "AccessSnapshot",
+      "side_effects": ["request the fixed Shizuku permission request code", "never accept a package or shell command"]
+    },
+    {
+      "name": "reconnect_shizuku",
+      "payload": {"type": "object", "additionalProperties": false},
+      "returns": "CommandAccepted",
+      "side_effects": ["cancel the active attempt", "unbind the old attempt", "start the fixed backoff sequence"]
+    },
+    {
+      "name": "install_patch",
+      "payload": {"type": "object", "additionalProperties": false},
+      "returns": "CommandAccepted",
+      "preconditions": ["verified online patch release exists", "service_ready=true", "game resource version is materialized", "conflicts is empty"],
+      "side_effects": ["download to app external patch .part", "verify size and SHA-256", "run transactional GamePaths install", "delete .part after success or failure"]
+    },
+    {
+      "name": "uninstall_patch",
+      "payload": {"type": "object", "additionalProperties": false},
+      "returns": "CommandAccepted",
+      "preconditions": ["service_ready=true"],
+      "side_effects": ["remove only WuwaID-owned artifacts across supported game packages", "retain unrelated files"]
+    },
+    {
+      "name": "install_app_update",
+      "payload": {"type": "object", "additionalProperties": false},
+      "returns": "CommandAccepted",
+      "preconditions": ["a newer verified app release exists", "package installer permission is available"],
+      "side_effects": ["download and verify APK", "publish only the fixed content URI", "launch Android installer"]
+    },
+    {
+      "name": "launch_game",
+      "payload": {"type": "object", "additionalProperties": false},
+      "returns": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["package_name"],
+        "properties": {"package_name": {"$ref": "#/$defs/GamePackage"}}
+      },
+      "side_effects": ["prefer the detected installed game package", "otherwise try supported packages in declared order"]
+    },
+    {
+      "name": "send_diagnostics",
+      "payload": {"type": "object", "additionalProperties": false},
+      "returns": "CommandAccepted",
+      "side_effects": ["build the fixed diagnostics report", "upload only over HTTPS", "emit launcher.error on non-2xx or transport failure"]
+    },
+    {
+      "name": "open_shizuku_manager",
+      "payload": {"type": "object", "additionalProperties": false},
+      "returns": {"type": "object", "additionalProperties": false},
+      "side_effects": ["open the installed Shizuku manager or the fixed HTTPS project URL"]
+    }
+  ],
+  "events": [
+    {
+      "name": "launcher.snapshot",
+      "payload": "LauncherSnapshot",
+      "emitted_when": ["refresh completes", "Shizuku state changes", "an install or uninstall completes"]
+    },
+    {
+      "name": "launcher.progress",
+      "payload": "OperationProgress",
+      "emitted_when": ["download bytes advance", "installation phase changes", "uninstall or upload starts/ends"],
+      "rules": ["percent is integer 0..100", "download counters are monotonically non-decreasing for one operation", "stale operation_id events are ignored"]
+    },
+    {
+      "name": "launcher.error",
+      "payload": "FsError",
+      "emitted_when": ["an operation fails", "refresh cannot produce a valid snapshot"],
+      "rules": ["message is sanitized and contains no absolute path or control character"]
+    },
+    {
+      "name": "launcher.access_changed",
+      "payload": "AccessSnapshot",
+      "emitted_when": ["Shizuku binder arrives or dies", "permission result arrives", "UserService connects, times out, or disconnects"]
+    },
+    {
+      "name": "launcher.installer_ready",
+      "payload": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["uri", "display_name", "mime_type"],
+        "properties": {
+          "uri": {"type": "string", "pattern": "^content://"},
+          "display_name": {"type": "string", "const": "WuwaID-Mobile-update.apk"},
+          "mime_type": {"type": "string", "const": "application/vnd.android.package-archive"}
+        }
+      },
+      "rules": ["the payload exposes no filesystem path", "the URI is read-only and grant-scoped"]
+    }
+  ],
+  "filesystem": {
+    "logical_scopes": {
+      "GAME_GLOBAL": "/storage/emulated/0/Android/data/com.kurogame.wutheringwaves.global",
+      "GAME_SAMSUNG": "/storage/emulated/0/Android/data/com.kurogame.wutheringwaves.samsung",
+      "APP_EXTERNAL_FILES": "/storage/emulated/0/Android/data/{application_id}/files",
+      "APP_PATCH": "/storage/emulated/0/Android/data/{application_id}/files/patch",
+      "APP_UPDATES": "/storage/emulated/0/Android/data/{application_id}/files/updates"
+    },
+    "legacy_root_helper_allowed_roots": [
+      "/storage/emulated/0/Android/data/com.kurogame.wutheringwaves.global",
+      "/data/data/com.kurogame.wutheringwaves.global",
+      "/data/user/0/com.kurogame.wutheringwaves.global",
+      "/storage/emulated/0/Android/data/com.kurogame.wutheringwaves.samsung",
+      "/data/data/com.kurogame.wutheringwaves.samsung",
+      "/data/user/0/com.kurogame.wutheringwaves.samsung",
+      "/storage/emulated/0/Android/data/{application_id}"
+    ],
+    "android_external_files_contract": {
+      "root_call": "getExternalFilesDir(null)",
+      "patch_call": "getExternalFilesDir(\"patch\")",
+      "updates_call": "getExternalFilesDir(\"updates\")",
+      "patch_partial_file": "pakchunk0-ID-WindowsNoEditor_1000_P.pak.part",
+      "update_final_file": "WuwaID-Mobile-update.apk",
+      "update_partial_file": "WuwaID-Mobile-update.apk.part",
+      "same_application_id_preserves_root": "/storage/emulated/0/Android/data/{application_id}/files"
+    },
+    "path_policy": {
+      "frontend_may_supply_absolute_paths": false,
+      "privileged_bridge_may_supply_absolute_paths": false,
+      "allowed_roots": ["GAME_GLOBAL", "GAME_SAMSUNG", "APP_EXTERNAL_FILES"],
+      "allowed_relative_path_max_bytes": 4096,
+      "empty_relative_path_allowed": true,
+      "reject": ["NUL", "absolute paths", "empty components", ". components", ".. components", "symlink traversal", "magic links", "special files where a regular file is required"],
+      "canonical_or_openat2_beneath_check_required": true,
+      "cross_scope_copy_allowed_only_for": ["APP_PATCH -> GAME_GLOBAL", "APP_PATCH -> GAME_SAMSUNG"],
+      "shell_command_input": "forbidden"
+    },
+    "operations": {
+      "copy_file": {
+        "source": "regular file inside an allowed scope",
+        "destination": "inside an allowed scope",
+        "result": "destination contains an fsynced copy and replaces the old destination atomically where supported",
+        "source_lifecycle": "source remains; caller owns cleanup"
+      },
+      "replace_file": {
+        "source": "regular staged file inside an allowed scope",
+        "destination": "inside an allowed scope",
+        "result": "destination is replaced by the staged bytes atomically where supported",
+        "source_lifecycle": "caller explicitly deletes the source after success; callers must not rely on implicit source deletion",
+        "legacy_note": "LocalFileEngine currently consumes the source while root_file_helper retains it; the frozen bridge contract uses explicit cleanup so both backends are safe and equivalent to GamePaths user-visible behavior."
+      },
+      "delete_file": {
+        "missing": "success",
+        "regular_file": "delete and return success",
+        "empty_directory": "delete and return success",
+        "non_empty_directory_or_special_file": "failure",
+        "symlink": "failure"
+      },
+      "exists": {
+        "missing": false,
+        "unsupported_or_error": false,
+        "regular_file_or_directory": true
+      },
+      "mkdirs": {
+        "existing_directory": true,
+        "new_directory": "create parents with fixed safe metadata and return true",
+        "symlink_component": "failure"
+      },
+      "list_files": {
+        "result": "sorted base names only",
+        "missing_or_non_directory": "empty list at domain boundary",
+        "absolute_paths_in_result": false
+      },
+      "read_text": {
+        "encoding": "UTF-8",
+        "missing_or_non_file": "empty string at domain boundary",
+        "malformed_utf8": "failure"
+      },
+      "write_text_atomic": {
+        "encoding": "UTF-8",
+        "algorithm": "write temporary sibling, fsync file, replace destination, fsync parent",
+        "success": "temporary sibling is not observable as the destination",
+        "failure": "old destination remains intact when it existed"
+      },
+      "sha1": {
+        "use": "legacy mount manifest compatibility",
+        "result": "lowercase hexadecimal",
+        "missing_or_non_file": "failure"
+      },
+      "sha256": {
+        "use": "release and installed patch verification",
+        "result": "lowercase hexadecimal",
+        "missing_or_non_file": "failure"
+      },
+      "last_error": {
+        "visibility": "internal backend diagnostic only",
+        "sanitization": "remove absolute paths and control characters, cap at 512 characters"
+      }
+    },
+    "root_helper_protocol": {
+      "magic_hex": "0x57554944",
+      "version": 1,
+      "byte_order": "big_endian",
+      "opcodes": {
+        "PING": 0,
+        "COPY": 1,
+        "REPLACE": 2,
+        "DELETE": 3,
+        "EXISTS": 4,
+        "MKDIRS": 5,
+        "LIST": 6,
+        "READ": 7,
+        "WRITE_ATOMIC": 8,
+        "SHA1": 9,
+        "SHA256": 10
+      },
+      "max_fields": 2,
+      "max_frame_bytes": 8388608,
+      "max_payload_bytes": 16777216,
+      "binary_name": "libwuwa_root_helper.so",
+      "execution": "fixed one-shot stdio protocol; caller cannot provide a shell command"
+    }
+  },
+  "game": {
+    "supported_packages_in_order": [
+      "com.kurogame.wutheringwaves.global",
+      "com.kurogame.wutheringwaves.samsung"
+    ],
+    "resource_path": "{game_root}/files/UE4Game/Client/Client/Saved/Resources",
+    "materialized_version_requires": ["ResManifest", "Mount/MountResource.txt", "non-empty Resource directory"],
+    "version_format": "major.minor.patch numeric semantic version",
+    "active_version": "highest materialized semantic version; pre-download-only versions are ignored",
+    "patch": {
+      "folder": "wuwaindonesia",
+      "pak": "WuWaID_99_P.pak",
+      "signature": "WuWaID_99_P.sig",
+      "mount": "Mount/wuwaindonesia.txt",
+      "owned_artifacts": [
+        "Mount/wuwaindonesia.txt",
+        "wuwaindonesia/WuWaID_99_P.pak",
+        "wuwaindonesia/WuWaID_99_P.sig",
+        "wuwaindonesia/WuWaID_99_P.pak.new",
+        "wuwaindonesia/WuWaID_99_P.sig.new",
+        "Mount/wuwaindonesia.txt.new",
+        "*.tmp siblings for the three staged artifacts",
+        "*.bak siblings for the three target artifacts"
+      ]
+    },
+    "mount_format": "::Mount::\\nwuwaindonesia/WuWaID_99_P,99,{PAK_SHA1_UPPER},{SIG_SHA1_UPPER},,\\n::Del::\\n",
+    "conflicts": [
+      "version/wuwaviethoa directory",
+      "non-official Mount/*.txt whose name or content identifies wuwavh or wuwaviethoa",
+      "non-MountLang_* mount entry with any line priority >= 99",
+      "official Mount/MountLang_en.txt containing WuWaVH_99_P"
+    ],
+    "install_transaction": [
+      "reject missing materialized resource version",
+      "reject conflicts",
+      "copy downloaded patch into staged .pak.new",
+      "verify staged SHA-256 against the verified release",
+      "copy an official .sig to staged .sig.new",
+      "compute uppercase SHA-1 values and write staged mount atomically",
+      "backup existing target artifacts",
+      "replace staged artifacts into their targets",
+      "verify final SHA-256 and normalized mount content",
+      "delete only owned artifacts from older resource versions",
+      "on any failure, remove newly installed artifacts and restore backups in reverse order",
+      "always remove staged, temporary, and backup artifacts after commit or rollback"
+    ],
+    "inspect": {
+      "current_healthy": "PAK, SIG, and mount exist and mount exactly matches the current SHA-1 values",
+      "matches_latest": "current_healthy AND release exists AND installed PAK SHA-256 equals release.sha256",
+      "any_owned_patch": "any owned artifact or patch directory exists in any supported package"
+    },
+    "uninstall": "remove only WuwaID-owned artifacts and now-empty patch directories in all supported packages; retain unrelated files"
+  },
+  "release": {
+    "patch_api": "https://api.github.com/repos/TitoTFP/WuwaID/releases/latest",
+    "patch_asset": "pakchunk0-ID-WindowsNoEditor_1000_P.pak",
+    "checksum_asset": "SHA256sums.txt",
+    "cache": {
+      "shared_preferences_file": "patch_release",
+      "key": "latest",
+      "json_keys": ["tag", "title", "publishedAt", "notes", "assetUrl", "size", "sha256"],
+      "load_order": "load before the first network request",
+      "validity": ["non-empty tag", "assetUrl starts with https://", "size > 0", "sha256 is exactly 64 hexadecimal characters"],
+      "invalid_or_missing": "ignore and continue without an offline release",
+      "network_failure": "retain the valid cache and surface the network diagnostic",
+      "install_rule": "cache is displayable offline but never authorizes installation without a verified online release"
+    },
+    "download": {
+      "directory": "APP_PATCH",
+      "partial_name": "pakchunk0-ID-WindowsNoEditor_1000_P.pak.part",
+      "checks": ["HTTPS response", "exact byte size", "SHA-256 case-insensitive equality"],
+      "failure": "delete the partial file and close the response",
+      "success": "pass the verified partial to GamePaths and delete it after install"
+    }
+  },
+  "app_update": {
+    "api": "https://api.github.com/repos/TitoTFP/WuwaIDMobile/releases?per_page=20",
+    "asset_name": "WuwaID-Mobile-{tag}.apk",
+    "selection": ["skip draft releases", "skip malformed versions", "skip assetless releases", "choose highest semantic version greater than current"],
+    "directory": "APP_UPDATES",
+    "file_name": "WuwaID-Mobile-update.apk",
+    "partial_name": "WuwaID-Mobile-update.apk.part",
+    "provider": {
+      "authority": "{application_id}.updates",
+      "uri_path": "/WuwaID-Mobile-update.apk",
+      "mime_type": "application/vnd.android.package-archive",
+      "exported": false,
+      "grant_uri_permissions": true,
+      "open_mode": "read-only"
+    },
+    "verification_before_installer": [
+      "downloaded size and SHA-256 match release metadata",
+      "archive package name equals installed application id",
+      "archive versionCode is greater than installed versionCode",
+      "archive signing certificates equal installed certificates",
+      "rename the verified .part to WuwaID-Mobile-update.apk",
+      "publish only the fixed content URI and MIME type"
+    ],
+    "failure": "delete both .part and final APK cache; do not launch the installer",
+    "no_update": "clear both update cache files"
+  },
+  "diagnostics": {
+    "report_fields": [
+      "existing launcher diagnostics",
+      "Build.MANUFACTURER and Build.MODEL",
+      "Android release and API level",
+      "Build.DISPLAY",
+      "Build.VERSION.SECURITY_PATCH",
+      "Shizuku versionName and versionCode or not installed"
+    ],
+    "upload": {
+      "endpoint_policy": "HTTPS only",
+      "multipart_fields": ["appVersion", "timestamp", "os"],
+      "attachment_field": "logs",
+      "attachment_filename": "wuwaidmobile-diagnostics.zip",
+      "attachment_mime": "application/zip",
+      "archive_entries": ["diagnostics.txt"],
+      "success_codes": "HTTP 200..299 only",
+      "failure": "surface sanitized error and always disconnect/close streams"
+    }
+  },
+  "identity": {
+    "release_application_id": "com.titotfp.wuwaid",
+    "debug_application_id": "com.titotfp.wuwaid.debug",
+    "current_version_name": "0.3.4",
+    "current_version_code": 7,
+    "min_sdk": 26,
+    "compile_sdk": 35,
+    "target_sdk": 35,
+    "native_abi": "arm64-v8a",
+    "root_helper_native_name": "libwuwa_root_helper.so",
+    "manifest_security": {
+      "allow_backup": false,
+      "uses_cleartext_traffic": false,
+      "update_provider_exported": false,
+      "update_provider_grant_uri_permissions": true,
+      "shizuku_provider_exported": true,
+      "launcher_activity_exported": true
+    },
+    "signing": {
+      "upgrade_rule": "release APK updates must use the same signing certificate as the installed APK",
+      "certificate_digest": "must be pinned by the legacy APK fixture in the compatibility gate before device execution"
+    }
+  },
+  "acceptance": [
+    "Every frontend command and event is typed and carries no arbitrary filesystem path or shell command.",
+    "Root is selected before Shizuku; Shizuku is the fallback only when root is unavailable.",
+    "LauncherStatus resolution preserves the exact legacy priority and BUSY/ERROR overlay behavior.",
+    "Filesystem expected-missing read/list/delete semantics and sanitized errors are explicit.",
+    "Release cache, patch download, transactional install, rollback, APK provider, diagnostics upload, and signing invariants are explicit.",
+    "This file is the input contract for the Tauri scaffold and all subsequent Rust/plugin implementation tasks."
+  ]
+}

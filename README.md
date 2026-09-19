@@ -56,15 +56,28 @@ WuwaID Mobile adalah launcher Android komunitas untuk memasang, memperbarui, mem
 
 ## Build dari source
 
-Butuh JDK 17, Android SDK 35, NDK `27.0.12077973`, dan CMake 3.22.1.
+Butuh JDK 17, Android SDK 35, dan CMake 3.22.1. Build Tauri Android memakai NDK `27.3.13750724` (r27d), dipin oleh `src-tauri/gen/android/app/build.gradle.kts`. Legacy Gradle dan workflow CI tetap memakai NDK `27.0.12077973`.
+
+### Tauri 2 Android
 
 ```bash
-git clone https://github.com/TitoTFP/WuwaIDMobile.git
-cd WuwaIDMobile
-./gradlew test lint assembleDebug
+npm ci
+npm run tauri:android:build -- --debug
 ```
 
 APK debug tersedia di:
+
+```text
+src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk
+```
+
+### Legacy Android Gradle
+
+```bash
+./gradlew test lint assembleDebug
+```
+
+APK legacy tersedia di:
 
 ```text
 app/build/outputs/apk/debug/app-debug.apk
@@ -81,11 +94,20 @@ ANDROID_KEY_ALIAS
 ANDROID_KEY_PASSWORD
 ```
 
+Tauri Android:
+
+```bash
+npm run tauri:android:build
+```
+
+Legacy Android Gradle:
+
 ```bash
 ./gradlew clean test lint assembleRelease
 ```
 
-Setiap rilis wajib menaikkan `versionCode`. `versionName` harus sama dengan tag tanpa awalan `v`.
+Tanpa environment signing, build Tauri release menghasilkan APK unsigned. Setiap rilis wajib menaikkan `versionCode`. `versionName` harus sama dengan tag tanpa awalan `v`.
+
 
 ## Pengujian
 
