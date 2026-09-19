@@ -1,4 +1,7 @@
 # Changelog
+## Unreleased
+
+- Menghapus petunjuk troubleshooting khusus vendor Android dari launcher dan dokumentasi karena perilakunya tidak dapat digeneralisasi lintas ROM; mempertahankan langkah troubleshooting Shizuku yang umum.
 
 ## 0.3.0 - 2026-07-29
 
