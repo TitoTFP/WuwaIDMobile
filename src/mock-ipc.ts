@@ -25,7 +25,7 @@ function seed(): Dashboard {
     game: { installed: true, version: GAME_VERSION, packageName: PACKAGE_NAME },
     resource: { ready: true, version: GAME_VERSION },
     shizuku: { running: true, granted: true },
-    axmanager: { installed: true, supported: true, running: true, version: "2.0.1" },
+    axmanager: { installed: true, supported: true, running: true, version: "3.0.0" },
     access: { method: "shizuku", granted: true },
     patch: {
       installed: false,
@@ -224,7 +224,7 @@ async function perform(
     } else if (operation === "request_axmanager") {
       if (next.access.method !== "axmanager") throw new Error("Pilih metode AxManager terlebih dahulu.");
       if (!next.axmanager.installed || !next.axmanager.supported || !next.axmanager.running)
-        throw new Error("Aktifkan AxManager 2.0.1+ terlebih dahulu.");
+        throw new Error("Aktifkan AxManager 3.0.0+ terlebih dahulu.");
     } else if (operation === "request_permission") {
       if (next.access.method !== "shizuku") throw new Error("Pilih metode Shizuku terlebih dahulu.");
       if (!next.shizuku.running) throw new Error("Shizuku belum aktif.");

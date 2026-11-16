@@ -144,8 +144,8 @@ dependencies {
         exclude(group = "dev.rikka.shizuku", module = "aidl")
     }
     implementation("com.github.topjohnwu.libsu:service:6.0.0")
-    implementation("com.github.fahrez182.Axeron-API:axsh:2.0.1")
-    implementation("com.github.fahrez182.Axeron-API:aidl:2.0.1")
+    implementation("com.github.fahrez182.Axeron-API:axsh:3.0.0")
+    implementation("com.github.fahrez182.Axeron-API:aidl:3.0.0")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.17")
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")

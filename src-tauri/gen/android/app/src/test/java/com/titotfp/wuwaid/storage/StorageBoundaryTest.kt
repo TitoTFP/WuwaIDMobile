@@ -72,11 +72,11 @@ class StorageBoundaryTest {
   }
 
   @Test fun axManagerRequiresSupportedAndroidPrimaryUserAndBothAppAndServerVersions() {
-    assertTrue(isAxManagerCompatible(26, 0, 20100, 20100))
-    assertTrue(isAxManagerCompatible(34, 0, 20101, 20100))
-    assertFalse(isAxManagerCompatible(25, 0, 20100, 20100))
-    assertFalse(isAxManagerCompatible(34, 10, 20100, 20100))
-    assertFalse(isAxManagerCompatible(34, 0, 20099, 20100))
-    assertFalse(isAxManagerCompatible(34, 0, 20100, 20099))
+    assertTrue(isAxManagerCompatible(26, 0, 30000, 30000))
+    assertTrue(isAxManagerCompatible(36, 0, 30100, 30000))
+    assertFalse(isAxManagerCompatible(25, 0, 30000, 30000))
+    assertFalse(isAxManagerCompatible(36, 10, 30000, 30000))
+    assertFalse(isAxManagerCompatible(36, 0, 29999, 30000))
+    assertFalse(isAxManagerCompatible(36, 0, 30000, 29999))
   }
 }

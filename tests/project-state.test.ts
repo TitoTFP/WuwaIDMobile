@@ -68,7 +68,7 @@ describe("installation prerequisites", () => {
   it("uses an explicit AxManager grant without Shizuku and rejects unavailable AxManager despite a stale grant", () => {
     const d = dashboard();
     d.access = { method: "axmanager", granted: true };
-    d.axmanager = { installed: true, supported: true, running: true, version: "2.0.1" };
+    d.axmanager = { installed: true, supported: true, running: true, version: "3.0.0" };
     d.shizuku = { running: false, granted: false };
     expect(installationPrerequisites(d)).toBe(true);
     expect(readiness(d).ready).toBe(true);
@@ -199,10 +199,10 @@ describe("maintenance transitions", () => {
     for (const name of ["request_root", "use_root", "use_shizuku", "use_axmanager", "refresh", "repair", "uninstall", "save-diagnostics", "share-diagnostics"])
       expect(action(name).disabled).toBe(true);
   });
-  it("does not enable AxManager permission or mutations while busy or when its server is unavailable", () => {
+  it("allows requesting a private AxManager capability before one is visible, but never enables mutations", () => {
     const d = dashboard();
     d.access = { method: "axmanager", granted: false };
-    d.axmanager = { installed: true, supported: true, running: true, version: "2.0.1" };
+    d.axmanager = { installed: true, supported: true, running: true, version: "3.0.0" };
     tools(state(d, "draft", true));
     for (const name of ["request_axmanager", "setup-axmanager", "use_root", "use_shizuku"])
       expect(action(name).disabled).toBe(true);
@@ -211,10 +211,13 @@ describe("maintenance transitions", () => {
     expect(action("use_axmanager").disabled).toBe(true);
     d.axmanager.running = false;
     tools(state(d));
-    expect(action("request_axmanager").disabled).toBe(true);
+    expect(action("request_axmanager").disabled).toBe(false);
     expect(action("setup-axmanager").disabled).toBe(false);
     customize(state(d));
     expect(document.querySelector<HTMLButtonElement>("#apply-uid")!.disabled).toBe(true);
     expect(d.access.method).toBe("axmanager");
+    d.axmanager.supported = false;
+    tools(state(d));
+    expect(action("request_axmanager").disabled).toBe(true);
   });
 });
