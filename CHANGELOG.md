@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **AxManager 3:** migrate to Axeron `axsh`/`aidl` 3.0.0, `AxBroker`/`AxShellService`, and per-UID capabilities. Discover the manager by its access action; launch the guarded service through its official native `libaxsh.so`, keeping the initial permission request attached to a real client on AxManager 3.0.0. Require app/server versionCode 30000+, retain non-prompting grant checks, and allow explicit connection before a capability is visible. AxManager 2.x is no longer compatible; Shizuku/Root and Android API 24–25 support are unchanged.
+
 ## 1.0.0
 
 - **Stable release identity:** use version `1.0.0` and Android versionCode `9`, above the public pre-Tauri code `7` and Tauri QA code `8`. Keep package `com.titotfp.wuwaid`, the original signing certificate, and the stable updater asset contract. Publication remains gated on signed-candidate device QA; build and host checks do not establish in-place upgrade compatibility.

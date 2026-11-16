@@ -155,14 +155,13 @@ export function readiness(d: Dashboard): {
       label: "Game belum ditemukan",
       detail: "Pasang versi Global atau Galaxy Store, lalu periksa ulang.",
     };
-  if (d.access.method === "axmanager" && (!d.axmanager.installed || !d.axmanager.supported || !d.axmanager.running))
+  if (d.access.method === "axmanager" && (!d.axmanager.installed || !d.axmanager.supported))
     return {
       ready: false,
-      label: !d.axmanager.installed ? "AxManager belum terpasang"
-        : !d.axmanager.supported ? "AxManager belum didukung" : "AxManager belum aktif",
-      detail: !d.axmanager.supported && d.axmanager.installed
-        ? "Perlu Android 8+, user utama, dan AxManager 2.0.1+. Pilih akses lain di Perawatan."
-        : "Pasang AxManager dan aktifkan server, lalu periksa ulang.",
+      label: !d.axmanager.installed ? "AxManager belum tersedia" : "AxManager belum didukung",
+      detail: d.axmanager.installed
+        ? "Perlu Android 8+, user utama, dan AxManager 3.0.0+. Pilih akses lain di Perawatan."
+        : "Pasang AxManager 3.0.0+ atau periksa AX-Stealth, lalu hubungkan di Perawatan.",
     };
   if (d.access.method === "root" && !d.access.granted)
     return {
@@ -183,6 +182,12 @@ export function readiness(d: Dashboard): {
       label: "Izin diperlukan",
       detail: d.access.method === "axmanager" ? "Hubungkan AxManager untuk melanjutkan."
         : "Izinkan Shizuku untuk melanjutkan.",
+    };
+  if (d.access.method === "axmanager" && !d.axmanager.running)
+    return {
+      ready: false,
+      label: "Koneksi AxManager terputus",
+      detail: "Aktifkan server AxManager, lalu hubungkan ulang di Perawatan.",
     };
   if (d.resource.ready && (d.patch.legacyPending || d.patch.recoveryPending))
     return {

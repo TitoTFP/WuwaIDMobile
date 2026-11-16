@@ -32,7 +32,7 @@ Siapkan **Android ARM64** dan **Wuthering Waves Global atau Galaxy Store**. Pili
 |---|---|
 | [Shizuku](https://shizuku.rikka.app/) | Jalankan layanan Shizuku dan berikan izin kepada WuwaID Mobile. |
 | Root | Perangkat rooted dan izin dari pengelola root. |
-| [AxManager](https://github.com/fahrez182/AxManager/releases) | Versi 2.0.1+, server aktif, Android 8+ pada user utama. Tidak memerlukan layanan Shizuku. |
+| [AxManager](https://github.com/fahrez182/AxManager/releases) | Versi 3.0.0+, server aktif, Android 8+ pada user utama. Izinkan WuwaID Mobile melalui Hubungkan; tidak memerlukan layanan Shizuku. |
 
 1. Buka game dan selesaikan unduhan resource, termasuk paket bahasa Inggris.
 2. Buka **Perawatan**, pilih metode akses, lalu berikan izinnya.

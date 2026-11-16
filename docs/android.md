@@ -108,15 +108,19 @@ Sebelum membuka installer, periksa nama aset, ukuran/SHA-256, package `com.titot
 
 ## Akses AxManager
 
-Pilih **AxManager** secara eksplisit di Perawatan. Persyaratan: Android API 26+, user utama (user 0), dan aplikasi **serta server** AxManager 2.0.1/versionCode 20100 atau lebih baru. Versi yang diverifikasi adalah 2.0.1.r442. Setelah update APK AxManager, mulai ulang servernya; server lama yang masih berjalan ditolak. Android API 24–25 tetap memakai Root/Shizuku; minimum SDK aplikasi tidak dinaikkan. Profil sekunder/work profile dan AxManager 1.x tidak didukung oleh backend ini.
+Pilih **AxManager** secara eksplisit di Perawatan. Persyaratan: Android API 26+, user utama (user 0), dan aplikasi **serta server** AxManager 3.0.0/versionCode 30000 atau lebih baru. AxManager 1.x/2.x tidak didukung oleh integrasi ini. Setelah update APK AxManager, mulai ulang servernya. Android API 24–25 tetap memakai Root/Shizuku; minimum SDK aplikasi tidak dinaikkan. Profil sekunder/work profile tidak didukung.
 
-Backend memakai [Axeron-API `axsh`/`aidl` 2.0.1](https://github.com/fahrez182/Axeron-API/tree/0955dc961791c299a97dba999fa470bc056f02f1), bukan provider `.axeron` atau salinan kontrak Binder parsial dari PR lama:
+Backend memakai [Axeron-API `axsh`/`aidl` 3.0.0](https://github.com/fahrez182/Axeron-API/tree/3.0.0):
 
-- `Broker` meminta Binder melalui broadcast eksplisit `AxRuntime.REQUEST_BINDER` ke `frb.axeron.manager`. `attachApplication` memakai Bundle pada AIDL id 22; permission memakai id 19/20. ID AIDL ditambah `FIRST_CALL_TRANSACTION` pada wire. Tidak ada transaction ID/parcelable Axeron buatan aplikasi.
-- Provider `ShellServiceProvider` dari SDK hanya menerima UID root/shell dengan token bind acak yang masih outstanding; token dikirim melalui stdin, bukan argv. `AxManagerStorageService` memverifikasi UID 0/2000 sebelum menyediakan `StorageUserService`.
+- Manager ditemukan melalui `AxBroker.findManager`/action `AxRuntime.REQUEST_ACCESS`, bukan nama package tetap. **Hubungkan** mengikat `AxShellService` melalui launcher resmi `libaxsh.so` milik manager (path di-resolve ulang setiap start). `argv` bootstrap SDK di-quote per argumen; tidak ada perintah shell dari frontend. Launcher menjadi klien terautentikasi sebelum meminta izin melalui dialog normal AxManager.
+- AxManager 3 tidak membagikan Binder global kepada aplikasi: server mendorong capability khusus UID ke provider SDK setelah izin diberikan. Sebelum itu, server aktif tidak bisa dibedakan dari belum diizinkan melalui probe pasif. Tombol Hubungkan tetap tersedia tanpa capability; pemasangan/UID tetap diblokir.
+- Jalur native dipakai konsisten, bukan fallback: pada AxManager 3.0.0.r509, dialog request-access activity memberikan grant tanpa client record sehingga server membuang identitas grant sebelum capability dikirim. Bootstrap `libaxsh.so` memiliki record tersebut. Deny/timeout membatalkan bind; keberhasilan tetap memerlukan capability SDK, versi server, UID 0/2000, dan grant aktual.
+- Pilih **Allow all the time / Allowed**. Pada 3.0.0, Allow once hanya mengizinkan proses bootstrap sementara dan tidak memberikan capability persisten ke proses aplikasi; WuwaIDMobile tetap menolak operasi. Ubah menjadi Allowed di Privilege, lalu Hubungkan lagi. Broker in-app baru dimulai setelah bootstrap awal, agar native launcher tidak kembali ke broker yang belum diizinkan.
+- Provider `AxshProvider` dari SDK memverifikasi UID root/shell. Attach layanan tetap membutuhkan token bind acak outstanding yang dikirim melalui stdin, bukan argv. `AxManagerStorageService` memakai `AxShellService` dan memverifikasi UID 0/2000 sebelum menyediakan `StorageUserService`.
 - Metadata, streaming PFD, path/symlink guards, hashing, mutasi, dan installer transaksi tetap memakai implementasi yang sama. Tidak ada akses file Axeron alternatif atau perintah shell bebas dari frontend.
 - `request_axmanager` saja yang meminta izin dan mengikat service. Refresh tidak memunculkan dialog. Sesi memeriksa izin server lagi setiap akses service; Binder server yang berubah, grant dicabut, atau storage service mati memblokir operasi, bukan beralih ke Shizuku/Root.
-- Pilihan metode disimpan di `storage-access`; sesi privileged non-daemon dilepas ketika berganti dari AxManager atau aplikasi ditutup. Setelah membuka ulang aplikasi/service, gunakan tombol izin untuk menghubungkan kembali. Dialog permission AxManager 2.0.1 otomatis menolak setelah 10 detik.
+- SDK 3 tidak menyediakan probe grant/server publik tanpa dialog. Hanya `remote()` meng-opt-in `AxBroker.service()` internal dari versi SDK yang dipin untuk memeriksa grant, versi, dan identitas capability tanpa menjalankan shell atau meminta izin dari refresh. Perubahan SDK harus meninjau ulang kontrak ini; tidak ada refleksi atau salinan wire protocol.
+- Pilihan metode disimpan di `storage-access`; sesi privileged non-daemon dilepas ketika berganti metode atau aplikasi ditutup. Setelah membuka ulang aplikasi/service, gunakan Hubungkan. Grant terikat sertifikat penandatangan aplikasi; debug dan release perlu izin masing-masing. **AX-Stealth** dapat menyembunyikan manager/request-access; nonaktifkan mode tersebut sebelum menghubungkan, atau gunakan metode lain.
 
 Tidak diperlukan aplikasi/server Shizuku ataupun AX-Permission Intercept untuk metode AxManager. Dependensi API/provider Shizuku tetap ada untuk metode Shizuku. AIDL SDK Axeron memuat kontrak Shizuku 13 yang sama; dependensi `dev.rikka.shizuku:aidl` dikecualikan agar kelas Binder tidak dikemas dua kali.
 
@@ -126,13 +130,23 @@ Adaptasi mempertahankan kontribusi awal [@Ishcy melalui PR #9](https://github.co
 
 Gunakan APK debug ARM64 agar package release/data pengguna tetap dipertahankan. Catat baseline patch/UID dan kembalikan setelah tes. Jangan memasang dua installer secara bersamaan pada resource yang sama.
 
-1. Jalankan server AxManager; matikan layanan Shizuku lewat menu manager, tanpa mengubah konfigurasi wireless debugging. Pastikan proses `shizuku_server` tidak ada dan dashboard `shizuku.running=false`.
-2. Pilih AxManager, uji deny/timeout, lalu grant melalui dialog normal atau halaman Privilege. Refresh tidak boleh meminta izin sendiri. Cabut izin dan pastikan akses/mutasi diblokir.
+1. Jalankan server AxManager 3.0.0+; matikan layanan Shizuku lewat menu manager, tanpa mengubah konfigurasi wireless debugging. Pastikan proses `shizuku_server` tidak ada dan dashboard `shizuku.running=false`.
+2. Pilih AxManager: sebelum grant, Hubungkan harus tetap aktif walau capability belum tersedia. Uji deny/cancel, lalu grant melalui dialog normal atau halaman Privilege. Refresh tidak boleh meminta izin sendiri. Cabut izin dan pastikan akses/mutasi diblokir; restart server harus memerlukan koneksi ulang.
 3. Uji install, Apply/Reset UID, repair, uninstall, serta hasil terjemahan/UID di game. Bandingkan hash berkas resmi sebelum/sesudah. Jangan menulis langsung ke game melalui ADB.
 4. Uji restart aplikasi, stop/restart server, koneksi ulang eksplisit, dan pergantian Root/Shizuku/AxManager. Metode lain yang aktif tidak boleh membuka grant metode terpilih.
 5. Jalankan suite frontend/Rust/Android. Tes host Binder/provider mencakup API 24 dan 28; itu bukan bukti layanan AxManager dapat dipakai pada API 24–25. Root sukses memerlukan perangkat rooted; catat terpisah dari penolakan `su`.
 
-### Bukti QA port PR #9
+### QA migrasi Axeron 3 — 2026-11-16
+
+POCO X7/24095PCADG, Android 16/API 36, HyperOS OS3.0.303.0.WOOIDXM; AxManager 3.0.0.r509/server 30000, UID shell 2000; APK WuwaIDMobile debug terpisah dari release.
+
+- Tanpa proses `shizuku_server`: Hubungkan tersedia sebelum grant; deny/timeout memblokir akses. Allow all the time mengirim capability dan menjalankan `:shell_shared` sebagai shell; inspeksi pemasangan Global 3.8.1/resource 3.8.0 berhasil.
+- Allow once tidak memberikan capability aplikasi dan tidak membuka akses. Restart aplikasi maupun server memerlukan Hubungkan eksplisit; reconnect berhasil. Mencabut grant melalui Privilege menghentikan aplikasi; percobaan koneksi saat Denied ditolak tanpa dialog dan kontrol mutasi tetap terkunci. Allowed memulihkan koneksi.
+- Build APK ARM64 debug, 33 tes state frontend, dan 14 tes batas Android (provider pada API 24/28 serta batas versi/user) lulus. Shizuku/Root tidak diganti diam-diam.
+- SHA-256 empat berkas pemasangan yang sudah ada (PAK, signature, owner, mount) identik sebelum/sesudah pengujian agen. Agen tidak mengulang install/uninstall, perubahan UID, atau pemeriksaan visual dalam game agar pemasangan pengguna tidak berubah; bukti agen mencakup transport/inspeksi dan batas akses, bukan QA release/signing atau seluruh operasi installer.
+- Pengguna kemudian melakukan pengujian perangkat sendiri dan melaporkan aman. Skenario serta hasil per operasi tidak dirinci; penerimaan ini tidak disamakan dengan pengujian menyeluruh.
+
+### Bukti QA port PR #9 (historis, Axeron 2)
 
 Perangkat: Samsung SM-A525F, Android 14/API 34, user 0, ARM64; AxManager 2.0.1.r442/server 20100, UID shell 2000; game Global 3.7.0 dan rilis terjemahan `v3.7.1-id.1`.
 

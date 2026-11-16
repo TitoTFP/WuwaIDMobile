@@ -149,12 +149,12 @@ export function renderTools(state: UiState): string {
         <div class="card-header"><h2 id="access-title">Akses game</h2>${d.access.granted ? `<span class="status-badge good">${icon("check")}Terhubung</span>` : ""}</div>
         <div class="access-methods" role="group" aria-label="Metode akses">${methods}</div>
         <p class="muted access-description">${d.access.method === "root" ? "Akses langsung melalui su."
-          : d.access.method === "axmanager" ? "Android 8+ · user utama · AxManager 2.0.1+"
+          : d.access.method === "axmanager" ? "Android 8+ · user utama · AxManager 3.0.0+"
           : "Akses tanpa root melalui Shizuku."}</p>
         ${d.access.method === "root" && !d.access.granted ? `<p class="muted">Minta izin lewat tombol di bawah. Jika ditolak atau su tidak tersedia, pilih Shizuku.</p><div class="actions">${button("request_root", "Izinkan root", state.busy)}</div>` : ""}
         ${d.access.method === "axmanager" ? `<p class="muted">${!d.axmanager.installed ? "Pasang AxManager untuk melanjutkan."
           : !d.axmanager.supported ? "Versi atau perangkat belum didukung."
-          : "Aktifkan server, lalu hubungkan akses. Hubungkan ulang setiap aplikasi dibuka."}</p><div class="actions">${button("setup-axmanager", "Buka AxManager", state.busy || !d.axmanager.installed)}${button("request_axmanager", "Hubungkan", state.busy || !d.axmanager.supported || !d.axmanager.running || d.access.granted)}</div>` : ""}
+          : "Aktifkan server, lalu pilih Allow all the time. Hubungkan ulang setiap aplikasi dibuka."}</p><div class="actions">${button("setup-axmanager", "Buka AxManager", state.busy || !d.axmanager.installed)}${button("request_axmanager", "Hubungkan", state.busy || !d.axmanager.supported || d.access.granted)}</div>` : ""}
       </section>` : ""}
       <section class="card maintenance-card" aria-labelledby="maintenance-title"><div class="card-header"><h2 id="maintenance-title">Pengelolaan</h2></div><div class="tool-list">${rows}</div></section>
     </div>
@@ -162,7 +162,7 @@ export function renderTools(state: UiState): string {
       <details class="card technical-details"><summary>Detail teknis</summary><dl class="info-list">
         <div class="info-row"><dt>Game</dt><dd>${d.game.installed ? "Terpasang" : "Belum terpasang"} · ${escapeHtml(d.game.version)}<code>${escapeHtml(d.game.packageName)}</code></dd></div>
         <div class="info-row"><dt>Shizuku</dt><dd>${d.shizuku.running ? "Aktif" : "Tidak aktif"} · ${d.shizuku.granted ? "Diizinkan" : "Belum diizinkan"}</dd></div>
-        <div class="info-row"><dt>AxManager</dt><dd>${!d.axmanager.installed ? "Belum terpasang" : `${escapeHtml(d.axmanager.version)} · ${!d.axmanager.supported ? "Belum didukung" : d.access.method !== "axmanager" ? "Tidak dipilih" : d.axmanager.running ? "Server aktif" : "Server tidak aktif"}`}</dd></div>
+        <div class="info-row"><dt>AxManager</dt><dd>${!d.axmanager.installed ? "Tidak tersedia / AX-Stealth" : `${escapeHtml(d.axmanager.version)} · ${!d.axmanager.supported ? "Belum didukung" : d.access.method !== "axmanager" ? "Tidak dipilih" : d.axmanager.running ? "Akses server tersedia" : "Belum tersambung / belum diizinkan"}`}</dd></div>
         <div class="info-row"><dt>Akses terpilih</dt><dd>${ACCESS_LABELS[d.access.method]} · ${d.access.granted ? "Diizinkan" : "Belum diizinkan"}</dd></div>
         <div class="info-row"><dt>Resource</dt><dd>${d.resource.ready ? "Siap" : "Belum siap"} · ${escapeHtml(d.resource.version)}</dd></div>
         <div class="info-row"><dt>Terjemahan</dt><dd>${d.patch.installed ? "Terpasang" : "Belum terpasang"} · ${d.patch.healthy ? "Sehat" : "Perlu pemeriksaan"} · ${escapeHtml(d.patch.version)}${d.patch.recoveryPending ? " · Pemulihan tertunda" : ""}</dd></div>

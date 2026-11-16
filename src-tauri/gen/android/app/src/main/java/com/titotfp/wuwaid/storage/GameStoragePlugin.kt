@@ -181,7 +181,13 @@ class GameStoragePlugin(private val activity: Activity) : Plugin(activity) {
         null
       }
       "open_shizuku" -> runOnUi(invoke) { launchPackage(SHIZUKU_PACKAGE) }
-      "open_axmanager" -> runOnUi(invoke) { launchPackage(AxManagerSession.PACKAGE) }
+      "open_axmanager" -> runOnUi(invoke) {
+        val manager = axManagerSession.managerPackage()
+          ?: throw IllegalStateException("AxManager tidak ditemukan. Periksa pemasangan dan AX-Stealth.")
+        val intent = activity.packageManager.getLaunchIntentForPackage(manager)
+          ?: throw IllegalStateException("AxManager tidak dapat dibuka.")
+        activity.startActivity(intent)
+      }
       "open_store" -> runOnUi(invoke) { openStore() }
       else -> invoke.reject("Unsupported app control action")
     }
@@ -286,7 +292,6 @@ class GameStoragePlugin(private val activity: Activity) : Plugin(activity) {
     val intent = activity.packageManager.getLaunchIntentForPackage(packageName)
       ?: throw IllegalStateException("${when (packageName) {
         in GamePackages.supported -> "Wuthering Waves"
-        AxManagerSession.PACKAGE -> "AxManager"
         else -> "Shizuku"
       }} is not installed")
     activity.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))

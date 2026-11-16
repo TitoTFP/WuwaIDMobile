@@ -3,11 +3,11 @@ package com.titotfp.wuwaid.storage
 import android.content.Intent
 import android.os.IBinder
 import android.os.Process
-import frb.axeron.shell.ShellService
+import frb.axeron.shell.AxShellService
 
-// Axeron's token-authenticated ShellService hosts the same restricted storage implementation.
+// Axeron's token-authenticated AxShellService hosts the same restricted storage implementation.
 // No Axeron file API, arbitrary shell command, or alternate installer is exposed to the UI.
-class AxManagerStorageService : ShellService() {
+class AxManagerStorageService : AxShellService() {
   private var storage: StorageUserService? = null
 
   override fun onBind(intent: Intent): IBinder {

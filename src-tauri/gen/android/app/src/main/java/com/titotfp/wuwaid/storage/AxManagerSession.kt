@@ -9,14 +9,16 @@ import android.os.Build
 import android.os.IBinder
 import android.os.Process
 import frb.axeron.server.IAxeronService
-import frb.axeron.shell.Broker
-import frb.axeron.shell.ShellService
+import frb.axeron.shell.AxBroker
+import frb.axeron.shell.AxShellService
+import frb.axeron.shell.InternalAxeronApi
+import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.FutureTask
 import java.util.concurrent.TimeUnit
 
 internal fun isAxManagerCompatible(sdk: Int, userId: Int, appVersion: Long, serverVersion: Long? = null): Boolean =
-  sdk >= 26 && userId == 0 && appVersion >= 20100 && (serverVersion == null || serverVersion >= 20100)
+  sdk >= 26 && userId == 0 && appVersion >= 30000 && (serverVersion == null || serverVersion >= 30000)
 
 /** Independent of Shizuku's global binder. Only request() can prompt or bind privileged code. */
 internal class AxManagerSession(private val activity: Activity) {
@@ -30,10 +32,12 @@ internal class AxManagerSession(private val activity: Activity) {
 
   @Suppress("DEPRECATION")
   fun status(checkServer: Boolean = false): Map<String, Any> {
-    val info = try {
-      activity.packageManager.getPackageInfo(PACKAGE, 0)
-    } catch (_: PackageManager.NameNotFoundException) {
-      null
+    val info = managerPackage()?.let { packageName ->
+      try {
+        activity.packageManager.getPackageInfo(packageName, 0)
+      } catch (_: PackageManager.NameNotFoundException) {
+        null
+      }
     }
     val versionCode = info?.let { if (Build.VERSION.SDK_INT >= 28) it.longVersionCode else it.versionCode.toLong() } ?: 0L
     val userId = Process.myUid() / 100000
@@ -51,24 +55,56 @@ internal class AxManagerSession(private val activity: Activity) {
         "$version / server ${serverInfo.version}" else version)
   }
 
+  fun managerPackage(): String? = AxBroker.findManager(activity)?.packageName
+
+  private fun configureLauncher() {
+    synchronized(lock) { check(!closed) { "AxManager storage session was destroyed" } }
+    val context = activity.applicationContext
+    // Keep the broker socket closed until the initial native client has obtained permission.
+    // Otherwise libaxsh routes back to our ungranted broker instead of bootstrapping.
+    AxShellService.setLauncher { argv ->
+      val manager = AxBroker.findManager(context)
+        ?: throw IllegalStateException("AxManager tidak tersedia. Periksa AX-Stealth.")
+      Runtime.getRuntime().exec(arrayOf(
+        File(manager.nativeLibraryDir, "libaxsh.so").path, "-c",
+        argv.joinToString(" ") { "'${it.replace("'", "'\\''")}'" }
+      ))
+    }
+  }
+
+  // SDK 3 has no public non-prompting permission/server probe. Keep this opt-in local:
+  // calling Axsh.exec here could show a permission dialog during refresh or after revocation.
+  @OptIn(InternalAxeronApi::class)
   private fun remote(): IAxeronService? {
     synchronized(lock) {
       check(!closed) { "AxManager storage session was destroyed" }
-      if (!started) {
-        Broker.start(activity)
-        started = true
-      }
+      if (!started) return null
     }
-    return Broker.service()
+    return AxBroker.service()
   }
 
   // Never infer a grant from Shizuku, a cached permission callback, or a live storage binder alone.
   fun granted(): Boolean = runCatching { connected(); true }.getOrDefault(false)
 
-  fun connected(): IStorageUserService {
+  private fun authorizedServer(): IAxeronService {
     check(Build.VERSION.SDK_INT >= 26 && Process.myUid() / 100000 == 0) { "AxManager memerlukan Android 8+ dan user utama." }
-    val current = remote() ?: throw IllegalStateException("AxManager belum berjalan. Aktifkan server di AxManager.")
+    val current = remote() ?: throw IllegalStateException(
+      "Akses AxManager belum tersedia. Aktifkan server dan pilih Allow all the time (Allowed) untuk WuwaIDMobile di Privilege."
+    )
+    val info = current.serverInfo
+    val manager = checkNotNull(managerPackage()) { "AxManager tidak tersedia. Periksa AX-Stealth dan izin aplikasi." }
+    @Suppress("DEPRECATION")
+    val app = activity.packageManager.getPackageInfo(manager, 0)
+    @Suppress("DEPRECATION")
+    val version = if (Build.VERSION.SDK_INT >= 28) app.longVersionCode else app.versionCode.toLong()
+    check(isAxManagerCompatible(Build.VERSION.SDK_INT, Process.myUid() / 100000, version, info.versionCode) &&
+      (info.uid == 0 || info.uid == 2000)) { "Mulai ulang server AxManager 3.0.0+ sebelum menghubungkan." }
     check(current.checkSelfPermission()) { "Izin AxManager belum diberikan atau telah dicabut." }
+    return current
+  }
+
+  fun connected(): IStorageUserService {
+    val current = authorizedServer()
     return synchronized(lock) {
       check(!closed && server === current.asBinder()) { "Server AxManager berubah. Hubungkan ulang melalui tombol izin." }
       storage?.takeIf { it.asBinder().isBinderAlive }
@@ -78,16 +114,11 @@ internal class AxManagerSession(private val activity: Activity) {
 
   fun request(requestId: Long) {
     val state = status(checkServer = true)
-    check(state["installed"] == true) { "Pasang AxManager 2.0.1 atau lebih baru terlebih dahulu." }
-    check(state["supported"] == true) { "AxManager memerlukan Android 8+, user utama, dan AxManager 2.0.1 atau lebih baru." }
+    check(state["installed"] == true) { "Pasang AxManager 3.0.0+ atau nonaktifkan AX-Stealth untuk WuwaIDMobile." }
+    check(state["supported"] == true) { "AxManager memerlukan Android 8+, user utama, dan AxManager 3.0.0+." }
     if (granted()) return
-    val current = remote() ?: throw IllegalStateException("Aktifkan server AxManager, lalu coba lagi.")
+    configureLauncher()
     StorageTrace.phase(requestId, "permission.axmanager") {
-      if (!current.checkSelfPermission()) {
-        check(Broker.awaitPermission(current) && current.checkSelfPermission()) {
-          "Izin AxManager ditolak atau belum dijawab. Periksa halaman Privilege di AxManager."
-        }
-      }
       val latch = CountDownLatch(1)
       var failure: String? = null
       val conn = object : ServiceConnection {
@@ -95,13 +126,12 @@ internal class AxManagerSession(private val activity: Activity) {
           val accepted = synchronized(lock) {
             if (!closed && connection === this) {
               storage = IStorageUserService.Stub.asInterface(binder)
-              server = current.asBinder()
               ready = null
               latch.countDown()
               true
             } else false
           }
-          if (!accepted) activity.runOnUiThread { ShellService.unbind(this) }
+          if (!accepted) activity.runOnUiThread { AxShellService.unbind(this) }
         }
 
         override fun onServiceDisconnected(name: ComponentName) {
@@ -116,7 +146,7 @@ internal class AxManagerSession(private val activity: Activity) {
 
         override fun onBindingDied(name: ComponentName) {
           synchronized(lock) {
-            failure = ShellService.lastFailure(name) ?: "Service AxManager terputus saat menghubungkan."
+            failure = AxShellService.lastFailure(name) ?: "Service AxManager terputus saat menghubungkan."
           }
           onServiceDisconnected(name)
         }
@@ -136,12 +166,22 @@ internal class AxManagerSession(private val activity: Activity) {
         onUi {
           synchronized(lock) {
             check(!closed && connection === conn) { "AxManager storage binding was cancelled" }
-            previous?.let { ShellService.unbind(it) }
-            ShellService.bind(Intent(activity, AxManagerStorageService::class.java), conn)
+            previous?.let { AxShellService.unbind(it) }
+            AxShellService.bind(Intent(activity, AxManagerStorageService::class.java), conn)
           }
         }
         check(latch.await(20, TimeUnit.SECONDS)) { "Storage AxManager tidak tersambung dalam 20 detik. Coba lagi." }
         synchronized(lock) { failure }?.let { throw IllegalStateException(it) }
+        synchronized(lock) {
+          check(!closed && connection === conn) { "AxManager storage binding was cancelled" }
+          AxBroker.start(activity)
+          started = true
+        }
+        val current = authorizedServer()
+        synchronized(lock) {
+          check(!closed && connection === conn) { "AxManager storage binding was cancelled" }
+          server = current.asBinder()
+        }
         connected()
       } catch (error: Exception) {
         synchronized(lock) {
@@ -153,7 +193,7 @@ internal class AxManagerSession(private val activity: Activity) {
             ready = null
           }
         }
-        activity.runOnUiThread { ShellService.unbind(conn) }
+        activity.runOnUiThread { AxShellService.unbind(conn) }
         throw error
       }
     }
@@ -170,13 +210,13 @@ internal class AxManagerSession(private val activity: Activity) {
       ready = null
       old
     }
-    conn?.let { activity.runOnUiThread { ShellService.unbind(it) } }
+    conn?.let { activity.runOnUiThread { AxShellService.unbind(it) } }
   }
 
   fun close() {
     synchronized(lock) { closed = true }
     disconnect()
-    if (started) Broker.stop()
+    if (started) AxBroker.stop()
   }
 
   private fun <T> onUi(action: () -> T): T {
@@ -185,7 +225,4 @@ internal class AxManagerSession(private val activity: Activity) {
     return task.get(15, TimeUnit.SECONDS)
   }
 
-  companion object {
-    const val PACKAGE = "frb.axeron.manager"
-  }
 }

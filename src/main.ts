@@ -88,7 +88,7 @@ function renderHome() {
     primary = { action: "request_root", label: "Izinkan root" };
   else if (d.access.method === "shizuku" && !d.shizuku.running)
     primary = { action: "setup-shizuku", label: "Buka Shizuku" };
-  else if (d.access.method === "axmanager" && (!d.axmanager.installed || !d.axmanager.supported || !d.axmanager.running))
+  else if (d.access.method === "axmanager" && (!d.axmanager.installed || !d.axmanager.supported))
     primary = { action: "setup-axmanager", label: "Buka AxManager" };
   else if (d.access.method === "axmanager" && !d.access.granted)
     primary = { action: "request_axmanager", label: "Hubungkan AxManager" };
@@ -134,8 +134,8 @@ function renderHome() {
           : d.access.method === "root"
             ? "Perlu izin"
             : d.access.method === "axmanager"
-              ? (!d.axmanager.installed ? "Belum terpasang" : !d.axmanager.supported ? "Belum didukung"
-                : d.axmanager.running ? "Perlu koneksi" : "Server belum aktif")
+              ? (!d.axmanager.installed ? "Tidak tersedia / AX-Stealth" : !d.axmanager.supported ? "Belum didukung"
+                : "Perlu koneksi")
               : d.shizuku.running ? "Perlu izin" : "Belum aktif",
       ok: d.access.granted,
       icon: "shield",
