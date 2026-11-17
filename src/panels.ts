@@ -44,40 +44,37 @@ export function renderAccess(state: UiState): string {
   if (!d.platformSupported) return "";
   const access = accessReadiness(d);
   const methods = (["axmanager", "shizuku", "root"] as const).map((method) =>
-    `<button type="button" data-action="use_${method}" aria-pressed="${d.access.method === method}" ${state.busy || d.access.method === method ? "disabled" : ""}>${ACCESS_LABELS[method]}${method === "axmanager" ? "<small>Direkomendasikan</small>" : ""}</button>`,
+    `<button type="button" data-action="use_${method}" aria-pressed="${d.access.method === method}" ${state.busy || d.access.method === method ? "disabled" : ""}>${ACCESS_LABELS[method]}</button>`,
   ).join("");
   let guidance: string;
   let actions: string;
   if (d.access.method === "axmanager") {
-    guidance = `<p class="muted access-description">Tanpa root · Android 8+ · AxManager 3.0.0+</p>
-      <p class="muted">Gunakan profil utama perangkat, bukan profil kerja atau pengguna tambahan.</p>
-      <p class="muted">${!d.axmanager.installed ? "Unduh AxManager, pasang aplikasinya, lalu aktifkan server di dalamnya."
-        : !d.axmanager.supported ? "Perbarui aplikasi dan mulai ulang server AxManager 3.0.0+, atau pilih metode lain."
-        : "Aktifkan server, pilih Hubungkan, lalu izinkan Allow all the time (selalu izinkan). Hubungkan ulang setiap aplikasi dibuka atau server dimulai ulang."}</p>
-      ${!d.axmanager.installed ? `<details class="access-help"><summary>Sudah terpasang tetapi tidak terdeteksi?</summary><p class="muted">AX-Stealth dapat menyembunyikan AxManager. Nonaktifkan mode tersebut untuk WuwaIDMobile di AxManager, lalu pilih Periksa akses.</p></details>` : ""}`;
+    guidance = `<p class="muted access-description">Direkomendasikan · Android 8+ · Profil utama · Aplikasi/server 3.0.0+</p>
+      ${d.axmanager.installed && !d.axmanager.supported
+        ? `<p class="muted">Periksa syarat di atas. Perbarui aplikasi/server bila perlu, atau pilih metode lain.</p>` : ""}`;
     actions = button("setup-axmanager", d.axmanager.installed ? "Buka AxManager" : "Unduh AxManager", state.busy) +
       button("request_axmanager", "Hubungkan", state.busy || !d.axmanager.installed || !d.axmanager.supported || access.ready, "btn btn-primary");
   } else if (d.access.method === "shizuku") {
-    guidance = `<p class="muted access-description">Alternatif tanpa root melalui Shizuku.</p>
-      <p class="muted">${!d.shizuku.installed ? "Unduh dan pasang Shizuku, lalu aktifkan layanannya dari aplikasi tersebut."
-        : !d.shizuku.running ? "Buka Shizuku dan ikuti petunjuk untuk mengaktifkan layanan. Setelah kembali, status diperiksa otomatis."
-        : access.ready ? "Layanan aktif dan izin Shizuku sudah tersedia."
-        : d.shizuku.granted ? "Izin Shizuku sudah tersimpan. Pilih Hubungkan Shizuku untuk menyiapkan akses file game."
-        : "Layanan aktif. Pilih Izinkan Shizuku, lalu setujui dialog izinnya."}</p>`;
+    guidance = !d.shizuku.installed ? `<p class="muted">Pasang Shizuku, lalu aktifkan layanannya.</p>`
+      : !d.shizuku.running ? `<p class="muted">Aktifkan layanan di Shizuku.</p>`
+      : access.ready ? ""
+      : d.shizuku.granted ? `<p class="muted">Izin sudah ada. Hubungkan untuk melanjutkan.</p>`
+      : `<p class="muted">Setujui izin Shizuku untuk melanjutkan.</p>`;
     actions = button("setup-shizuku", d.shizuku.installed ? "Buka Shizuku" : "Unduh Shizuku", state.busy) +
       button("request_permission", d.shizuku.granted ? "Hubungkan Shizuku" : "Izinkan Shizuku", state.busy || !d.shizuku.installed || !d.shizuku.running || access.ready, "btn btn-primary");
   } else {
-    guidance = `<p class="muted access-description">Hanya untuk perangkat yang sudah di-root. WuwaIDMobile tidak melakukan root.</p>
-      <p class="muted">${access.ready ? "Akses root terhubung." : "Pilih Izinkan root dan setujui permintaan pengelola root jika muncul. Izin dapat tetap tersimpan, tetapi koneksi perlu dibuka ulang setelah aplikasi ditutup."} Jika perangkat tidak di-root atau izin ditolak, pilih AxManager atau Shizuku.</p>`;
+    guidance = !access.ready ? `<p class="muted">Izinkan akses melalui pengelola root.</p>` : "";
     actions = button("request_root", "Izinkan root", state.busy || access.ready, "btn btn-primary");
   }
-  return `<section id="access-setup" tabindex="-1" class="card access-card" aria-labelledby="access-title">
-    <div class="card-header"><h2 id="access-title">Akses game</h2><span class="status-badge ${access.ready ? "good" : "warning"}">${icon(access.ready ? "check" : "info")}${escapeHtml(access.label)}</span></div>
-    <p class="muted">Pilih satu metode akses. Berpindah metode tidak memberikan izin secara otomatis.</p>
-    <div class="access-methods" role="group" aria-label="Metode akses">${methods}</div>
-    ${guidance}
-    <div class="actions">${actions}</div>
-    ${button("refresh", `${icon("refresh")} Periksa akses`, state.busy, "text-button")}
+  return `<section id="access-setup" tabindex="-1" class="card access-card" data-access-method="${d.access.method}" aria-busy="${state.busy}" aria-labelledby="access-title">
+    <div class="card-header"><h2 id="access-title">Akses game</h2></div>
+    <div class="access-methods" role="group" tabindex="-1" aria-label="Metode akses">${methods}</div>
+    <div class="access-details">
+      <span class="status-badge ${access.ready ? "good" : "warning"}">${icon(access.ready ? "check" : "info")}${escapeHtml(access.label)}</span>
+      ${guidance}
+      <div class="actions">${actions}</div>
+      ${button("refresh", `${icon("refresh")} Periksa akses`, state.busy, "text-button")}
+    </div>
   </section>`;
 }
 
@@ -194,12 +191,10 @@ export function renderTools(state: UiState): string {
   ].map((row) =>
     `<div class="tool-row ${row.icon === "trash" ? "tool-destructive" : ""}"><span class="tool-icon">${icon(row.icon)}</span><div class="tool-copy"><h3>${row.name}</h3>${row.detail ? `<p class="muted">${row.detail}</p>` : ""}</div><div class="actions">${row.actions}</div></div>`,
   ).join("");
+  const needsAccess = d.platformSupported && !accessReadiness(d).ready;
   return `<section class="page-heading"><h1>Perawatan</h1></section>
-    <section class="health-banner" aria-label="Status pemasangan"><span class="health-icon ${status.ready ? "healthy" : "needs-attention"}">${icon(status.ready ? "check" : "info")}</span><div><h2>${escapeHtml(status.label)}</h2>${!status.ready ? `<p class="muted">${escapeHtml(status.detail)}</p>` : ""}</div><button class="icon-btn" data-action="refresh" aria-label="Periksa perangkat" title="Periksa perangkat" ${state.busy ? "disabled" : ""}>${icon("refresh")}</button></section>
-    <div class="maintenance-grid">
-      ${renderAccess(state)}
+    <section class="health-banner" aria-label="Status pemasangan"><span class="health-icon ${status.ready ? "healthy" : "needs-attention"}">${icon(status.ready ? "check" : "info")}</span><div><h2>${escapeHtml(status.label)}</h2>${!status.ready ? `<p class="muted">${escapeHtml(status.detail)}</p>` : ""}</div><button class="icon-btn" data-action="${needsAccess ? "access-setup" : "refresh"}" aria-label="${needsAccess ? "Atur akses game di Beranda" : "Periksa perangkat"}" title="${needsAccess ? "Atur akses game di Beranda" : "Periksa perangkat"}" ${state.busy ? "disabled" : ""}>${icon(needsAccess ? "arrow" : "refresh")}</button></section>
       <section class="card maintenance-card" aria-labelledby="maintenance-title"><div class="card-header"><h2 id="maintenance-title">Pengelolaan</h2></div><div class="tool-list">${rows}</div></section>
-    </div>
     <div class="tools-detail-grid">
       <details class="card technical-details"><summary>Detail teknis</summary><dl class="info-list">
         <div class="info-row"><dt>Game</dt><dd>${d.game.installed ? "Terpasang" : "Belum terpasang"} · ${escapeHtml(d.game.version)}<code>${escapeHtml(d.game.packageName)}</code></dd></div>

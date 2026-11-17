@@ -35,7 +35,7 @@ Siapkan **Android ARM64** dan **Wuthering Waves Global atau Galaxy Store**. **Ax
 | Root | Alternatif untuk perangkat rooted; izin diminta secara eksplisit dari pengelola root. |
 
 1. Buka game dan selesaikan unduhan resource, termasuk paket bahasa Inggris.
-2. Pilih **Atur akses game** di Beranda atau gunakan kartu **Akses game** di Perawatan. Pilih metode, unduh/buka manager bila diperlukan, lalu hubungkan atau berikan izin langsung di kartu tersebut. Lihat [pengaturan AxManager](docs/android.md#akses-axmanager).
+2. Buka kartu **Akses game** di Beranda. Pilih metode, unduh/buka manager bila diperlukan, lalu hubungkan atau berikan izin langsung di kartu tersebut. Lihat [pengaturan AxManager](docs/android.md#akses-axmanager).
 3. Kembali ke **Beranda** dan pilih **Pasang terjemahan**.
 
 Metode akses tidak berpindah otomatis saat izin ditolak atau koneksi putus. AxManager memerlukan **Hubungkan** ulang setiap aplikasi dibuka atau server dimulai ulang. Pengguna lama tanpa pilihan tersimpan tetap memakai Shizuku saat upgrade.

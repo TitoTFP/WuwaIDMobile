@@ -25,12 +25,13 @@ let renderedSection: Section | undefined;
 const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
 reducedMotion.addEventListener("change", () => {
   if (reducedMotion.matches)
-    app.querySelector("#main-content")?.getAnimations().forEach((animation) => animation.cancel());
+    app.querySelector("#main-content")?.getAnimations({ subtree: true }).forEach((animation) => animation.cancel());
 });
 let error = "";
 let toastTimer: number;
 let busyLabel = "";
 let fileProgress = false;
+let showBusyProgress = true;
 let setupArmed = false;
 let setupLeft = false;
 let setupRefreshPending = false;
@@ -198,17 +199,20 @@ function renderHome(panelState: UiState) {
         <dl class="package-facts"><div><dt>Terbaru</dt><dd>${esc(contentVersion)}</dd></div><div><dt>Untuk game</dt><dd>${esc(gameLine)}</dd></div>${d.patch.installed ? `<div><dt>Terpasang</dt><dd>${esc(d.patch.version)}</dd></div>` : ""}</dl>
         <div class="package-actions"><button class="btn btn-primary" data-action="${primary.action}" ${disabled}>${icon(primaryIcon)} ${primary.label}</button>${d.patch.installed && ready.ready ? `<button class="text-button" data-action="install" ${disabled}>${icon("refresh")} Pasang ulang</button>` : ""}</div>
       </section>
+      ${renderAccess(panelState)}
+    </div>
       <section class="card device-card" aria-labelledby="device-title">
         <div class="card-header"><h2 id="device-title">Perangkat</h2><button class="icon-btn" data-action="refresh" aria-label="Periksa perangkat" title="Periksa perangkat" ${state.busy || appUpdateBusy() ? "disabled" : ""}>${icon("refresh")}</button></div>
         <div class="device-list">${deviceRows.map((row) => `<div class="device-row"><span class="device-icon">${icon(row.icon)}</span><div><strong>${row.name}</strong><p>${esc(row.value)}</p></div><span class="device-check ${row.ok ? "" : "pending"}" aria-label="${row.ok ? "Siap" : "Perlu perhatian"}">${icon(row.ok ? "check" : "info")}</span></div>`).join("")}</div>
         ${d.platformSupported ? `<button class="text-button" data-action="access-setup" ${panelState.busy ? "disabled" : ""}>Atur akses game ${icon("arrow")}</button>` : ""}
       </section>
-    </div>${renderAccess(panelState)}`;
+    `;
 }
 
 function render() {
   const focused = document.activeElement as HTMLElement | null;
   const focusAction = focused?.dataset.action;
+  const accessSelectorFocused = focused?.classList.contains("access-methods");
   const uidSelection = focused instanceof HTMLInputElement && focused.id === "uid-input"
     ? { start: focused.selectionStart, end: focused.selectionEnd, direction: focused.selectionDirection }
     : null;
@@ -226,11 +230,36 @@ function render() {
   });
   const content = app.querySelector<HTMLElement>("#main-content")!;
   const panelState = appUpdateBusy() ? { ...state, busy: true } : state;
+  const previousAccess = content.querySelector<HTMLElement>("#access-setup");
+  const animateAccess = previousAccess && renderedSection === section && !reducedMotion.matches &&
+    (previousAccess.dataset.accessMethod !== state.dashboard.access.method ||
+      previousAccess.getAnimations().some((animation) => animation.playState === "running"));
+  // Carry an interrupted transition's current geometry into the next render.
+  const previousBox = animateAccess ? previousAccess.getBoundingClientRect() : null;
+  const previousScroll = previousBox ? { x: window.scrollX, y: window.scrollY } : null;
   content.innerHTML = `
     ${error ? `<div class="error-banner" role="alert">${icon("info")}<span>${esc(error)}</span><button class="icon-btn" data-action="dismiss-error" aria-label="Tutup pesan">${icon("close")}</button></div>` : ""}
-    ${state.busy ? renderProgress(busyLabel, fileProgress ? state.progress : null) : ""}
+    ${state.busy && showBusyProgress ? renderProgress(busyLabel, fileProgress ? state.progress : null) : ""}
     ${section === "home" ? renderHome(panelState) : section === "customize" ? renderCustomize(panelState) : renderTools(panelState)}
     ${renderAppUpdate(state.busy, section === "tools")}`;
+  const nextAccess = content.querySelector<HTMLElement>("#access-setup");
+  if (previousBox && previousScroll && nextAccess) {
+    const nextBox = nextAccess.getBoundingClientRect();
+    const offset = previousBox.top + previousScroll.y - nextBox.top - window.scrollY;
+    nextAccess.animate(
+      [
+        { height: `${previousBox.height}px`, transform: `translateY(${offset}px)`, overflow: "hidden" },
+        { height: `${nextBox.height}px`, transform: "translateY(0)", overflow: "hidden" },
+      ],
+      { duration: 180, easing: "cubic-bezier(.2, .8, .2, 1)" },
+    );
+    nextAccess.querySelector(".access-details")?.animate(
+      [{ opacity: 0.4 }, { opacity: 1 }],
+      { duration: 160, easing: "ease-out" },
+    );
+    if (window.scrollX !== previousScroll.x || window.scrollY !== previousScroll.y)
+      window.scrollTo({ left: previousScroll.x, top: previousScroll.y, behavior: "instant" });
+  }
   if (renderedSection !== section) {
     content.getAnimations().forEach((animation) => animation.cancel());
     if (!reducedMotion.matches)
@@ -244,10 +273,15 @@ function render() {
     state.dashboard.mode === "mock"
       ? "Terjemahan simulasi dihapus dan UID direset. File game tidak diubah."
       : "Paket dan mount WuwaIDMobile dihapus. File game asli tetap utuh.";
-  if (focusAction)
-    Array.from(app.querySelectorAll<HTMLElement>("[data-action]"))
-      .find((el) => el.dataset.action === focusAction)
-      ?.focus({ preventScroll: true });
+  if (focusAction) {
+    const target = Array.from(app.querySelectorAll<HTMLElement>("[data-action]"))
+      .find((el) => el.dataset.action === focusAction);
+    if (focusAction.startsWith("use_") && target instanceof HTMLButtonElement && target.disabled)
+      nextAccess?.querySelector<HTMLElement>(".access-methods")?.focus({ preventScroll: true });
+    else target?.focus({ preventScroll: true });
+  } else if (accessSelectorFocused) {
+    nextAccess?.querySelector<HTMLElement>(".access-methods")?.focus({ preventScroll: true });
+  }
   if (uidSelection) {
     const input = app.querySelector<HTMLInputElement>("#uid-input");
     input?.focus({ preventScroll: true });
@@ -256,13 +290,14 @@ function render() {
 }
 
 async function execute(work: () => Promise<void>, label = "Memeriksa status…",
-  options: { fileProgress?: boolean; reloadOnError?: boolean } = {}) {
+  options: { fileProgress?: boolean; reloadOnError?: boolean; showProgress?: boolean } = {}) {
   if (state.busy || appUpdateBusy()) return;
   const busyTrace = api.beginBusy();
   state.busy = true;
   state.progress = null;
   busyLabel = label;
   fileProgress = options.fileProgress ?? false;
+  showBusyProgress = options.showProgress ?? true;
   error = "";
   render();
   try {
@@ -299,21 +334,22 @@ async function operate(operation: Operation, uidText?: string) {
     restore_uid: "Memulihkan UID bawaan…",
     launch_game: "Membuka game…",
     request_permission: "Menunggu izin Shizuku…",
-    request_root: "Menunggu izin root dan menghubungkan akses…",
-    request_axmanager: "Menghubungkan AxManager; setujui izin jika diminta…",
+    request_root: "Menghubungkan root…",
+    request_axmanager: "Menghubungkan AxManager…",
     use_root: "Memilih Root…",
     use_shizuku: "Memilih Shizuku…",
     use_axmanager: "Memilih AxManager…",
   };
   await execute(async () => {
     state.dashboard = await api.run(operation, uidText);
+    if (operation === "use_root" || operation === "use_shizuku" || operation === "use_axmanager") return;
     if (
       operation === "apply_uid" ||
       operation === "restore_uid" ||
       operation === "uninstall"
     )
       state.uidDraft = state.dashboard.uid.custom ?? "";
-    const messages: Record<Operation, string> = {
+    const messages: Record<Exclude<Operation, "use_root" | "use_shizuku" | "use_axmanager">, string> = {
       install: `Terjemahan ${state.dashboard.patch.version} terpasang.`,
       repair: state.dashboard.patch.installed
         ? "Pemasangan dipulihkan."
@@ -328,13 +364,13 @@ async function operate(operation: Operation, uidText?: string) {
         : "Game dibuka.",
       request_permission: "Izin Shizuku diberikan.",
       request_root: "Akses root aktif.",
-      use_root: "Root dipilih. Izinkan akses untuk melanjutkan.",
-      use_shizuku: "Shizuku dipilih.",
       request_axmanager: "AxManager terhubung.",
-      use_axmanager: "AxManager dipilih. Hubungkan akses untuk melanjutkan.",
     };
     notify(messages[operation]);
-  }, labels[operation], { fileProgress: ["install", "repair", "uninstall", "apply_uid", "restore_uid"].includes(operation) });
+  }, labels[operation], {
+    fileProgress: ["install", "repair", "uninstall", "apply_uid", "restore_uid"].includes(operation),
+    showProgress: operation !== "use_root" && operation !== "use_shizuku" && operation !== "use_axmanager",
+  });
 }
 
 app.addEventListener("click", async (event) => {
@@ -370,6 +406,10 @@ app.addEventListener("click", async (event) => {
     error = "";
     render();
   } else if (action === "access-setup") {
+    if (section !== "home") {
+      section = "home";
+      render();
+    }
     const setup = app.querySelector<HTMLElement>("#access-setup");
     setup?.scrollIntoView({ behavior: reducedMotion.matches ? "instant" : "smooth", block: "start" });
     setup?.focus({ preventScroll: true });
@@ -402,12 +442,12 @@ app.addEventListener("click", async (event) => {
           setupRefreshPending = false;
           throw cause;
         }
-        notify("Selesaikan pengaturan. Status diperiksa saat kembali ke aplikasi.");
+        notify("Kembali ke sini setelah pengaturan selesai.");
       }, "Membuka pengaturan…", { reloadOnError: false });
     } else {
       section = "tools";
       render();
-      notify("Simulasi tidak membuka aplikasi lain. Pilih kondisi layanan melalui Skenario simulasi.");
+      notify("Pilih kondisi di Skenario simulasi.");
     }
   } else if (
     action &&

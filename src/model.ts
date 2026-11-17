@@ -143,20 +143,20 @@ export function accessReadiness(d: Dashboard): { ready: boolean; label: string; 
     return { ready: false, label: "Perlu Android", detail: "Akses file game hanya tersedia di Android." };
   if (d.access.method === "axmanager") {
     if (!d.axmanager.installed)
-      return { ready: false, label: "AxManager belum ditemukan", detail: "Pasang AxManager 3.0.0+ melalui Atur akses game." };
+      return { ready: false, label: "AxManager belum ditemukan", detail: "Pasang AxManager 3.0.0+." };
     if (!d.axmanager.supported)
       return { ready: false, label: "AxManager belum didukung", detail: "Perlu Android 8+, profil utama perangkat, dan aplikasi serta server AxManager 3.0.0+." };
     if (!d.access.granted || !d.axmanager.running)
-      return { ready: false, label: "AxManager belum terhubung", detail: "Aktifkan server di AxManager, lalu pilih Hubungkan pada Akses game. Izin yang tersimpan tidak berarti sesi sudah terhubung." };
+      return { ready: false, label: "AxManager belum terhubung", detail: "Aktifkan server, lalu hubungkan di Akses game." };
   } else if (d.access.method === "shizuku") {
     if (!d.shizuku.installed)
-      return { ready: false, label: "Shizuku belum terpasang", detail: "Unduh Shizuku melalui Akses game, lalu aktifkan layanannya." };
+      return { ready: false, label: "Shizuku belum terpasang", detail: "Pasang Shizuku melalui Akses game." };
     if (!d.shizuku.running)
-      return { ready: false, label: "Shizuku belum aktif", detail: "Buka Shizuku dan aktifkan layanannya, lalu kembali ke sini." };
+      return { ready: false, label: "Shizuku belum aktif", detail: "Aktifkan layanan di Shizuku, lalu kembali." };
     if (!d.access.granted)
-      return { ready: false, label: d.shizuku.granted ? "Shizuku belum terhubung" : "Izin Shizuku diperlukan", detail: "Pilih Hubungkan atau Izinkan Shizuku pada Akses game. Izin hanya diminta jika belum diberikan." };
+      return { ready: false, label: d.shizuku.granted ? "Shizuku belum terhubung" : "Izin Shizuku diperlukan", detail: d.shizuku.granted ? "Hubungkan Shizuku di Akses game." : "Berikan izin Shizuku di Akses game." };
   } else if (!d.access.granted) {
-    return { ready: false, label: "Root belum terhubung", detail: "Pada perangkat yang sudah di-root, pilih Izinkan root pada Akses game. Metode lain tetap tersedia." };
+    return { ready: false, label: "Root belum terhubung", detail: "Izinkan root di Akses game, atau pilih metode lain." };
   }
   return { ready: true, label: "Terhubung", detail: `Akses ${ACCESS_LABELS[d.access.method]} tersedia.` };
 }

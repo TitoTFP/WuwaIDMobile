@@ -196,18 +196,23 @@ describe("maintenance transitions", () => {
     d.access = { method: "root", granted: false };
     d.patch.installed = true;
     tools(state(d, "draft", true));
-    for (const name of ["request_root", "use_root", "use_shizuku", "use_axmanager", "refresh", "repair", "uninstall", "save-diagnostics", "share-diagnostics"])
+    for (const name of ["access-setup", "repair", "uninstall", "save-diagnostics", "share-diagnostics"])
+      expect(action(name).disabled).toBe(true);
+    expect(document.querySelector("#access-setup")).toBeNull();
+    document.body.innerHTML = renderAccess(state(d, "draft", true));
+    for (const name of ["request_root", "use_root", "use_shizuku", "use_axmanager", "refresh"])
       expect(action(name).disabled).toBe(true);
   });
   it.each([false, true])("offers setup and explicit alternatives without granting unavailable AxManager (installed=%s)", (installed) => {
     const d = dashboard();
     d.access = { method: "axmanager", granted: false };
     d.axmanager = { installed, supported: false, running: false, version: "" };
-    tools(state(d));
+    document.body.innerHTML = renderAccess(state(d));
     expect(action("setup-axmanager").disabled).toBe(false);
     expect(action("request_axmanager").disabled).toBe(true);
     expect(action("use_shizuku").disabled).toBe(false);
     expect(action("use_root").disabled).toBe(false);
+    tools(state(d));
     expect(action("repair").disabled).toBe(true);
     expect(action("uninstall").disabled).toBe(true);
     customize(state(d));
@@ -217,21 +222,21 @@ describe("maintenance transitions", () => {
     const d = dashboard();
     d.access = { method: "axmanager", granted: false };
     d.axmanager = { installed: true, supported: true, running: true, version: "3.0.0" };
-    tools(state(d, "draft", true));
+    document.body.innerHTML = renderAccess(state(d, "draft", true));
     for (const name of ["request_axmanager", "setup-axmanager", "use_root", "use_shizuku"])
       expect(action(name).disabled).toBe(true);
-    tools(state(d));
+    document.body.innerHTML = renderAccess(state(d));
     expect(action("request_axmanager").disabled).toBe(false);
     expect(action("use_axmanager").disabled).toBe(true);
     d.axmanager.running = false;
-    tools(state(d));
+    document.body.innerHTML = renderAccess(state(d));
     expect(action("request_axmanager").disabled).toBe(false);
     expect(action("setup-axmanager").disabled).toBe(false);
     customize(state(d));
     expect(document.querySelector<HTMLButtonElement>("#apply-uid")!.disabled).toBe(true);
     expect(d.access.method).toBe("axmanager");
     d.axmanager.supported = false;
-    tools(state(d));
+    document.body.innerHTML = renderAccess(state(d));
     expect(action("request_axmanager").disabled).toBe(true);
   });
 });

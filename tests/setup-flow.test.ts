@@ -21,7 +21,7 @@ vi.mock("../src/app-update", () => ({
 }));
 afterAll(() => { vi.unstubAllGlobals(); });
 
-it("completes setup in either surface and refreshes once on return, after outstanding operations finish", async () => {
+it("sets up access from Home and refreshes once on return, after outstanding operations finish", async () => {
   const d: Dashboard = {
     mode: "native", platformSupported: true, storageWritable: false, blocker: null,
     release: null, uidAvailable: true,
@@ -108,6 +108,8 @@ it("completes setup in either surface and refreshes once on return, after outsta
   expect(document.querySelector('.access-card .status-badge.good')).not.toBeNull();
 
   click('.mobile-nav [data-section="tools"]');
+  expect(document.querySelector("#access-setup")).toBeNull();
+  click('.mobile-nav [data-section="home"]');
   expect(document.querySelectorAll("#access-setup")).toHaveLength(1);
   expect(document.querySelector('[data-action="setup-shizuku"]')).not.toBeNull();
   backend.openSetup.mockRejectedValueOnce(new Error("Manager could not open"));
@@ -146,4 +148,36 @@ it("completes setup in either surface and refreshes once on return, after outsta
   expect(backend.load).toHaveBeenCalledTimes(1); // A failed passive check must not fall back to a full scan/bind.
   back();
   expect(backend.accessStatus).toHaveBeenCalledTimes(4);
+
+  // Provider selection stays local while the same busy guard blocks every privileged action.
+  const selection = Promise.withResolvers<Dashboard>();
+  backend.run.mockReturnValueOnce(selection.promise);
+  document.querySelector<HTMLButtonElement>('[data-action="use_root"]')!.focus();
+  click('[data-action="use_root"]');
+  await vi.waitFor(() => expect(backend.run).toHaveBeenCalledTimes(2));
+  expect(document.querySelector(".progress-card")).toBeNull();
+  expect(document.querySelector("#access-setup")?.getAttribute("aria-busy")).toBe("true");
+  expect(document.activeElement?.classList.contains("access-methods")).toBe(true);
+  for (const action of ["use_root", "use_shizuku", "use_axmanager", "request_permission", "refresh"])
+    expect(document.querySelector<HTMLButtonElement>(`#access-setup [data-action="${action}"]`)!.disabled).toBe(true);
+  click('[data-action="use_axmanager"]');
+  expect(backend.run).toHaveBeenCalledTimes(2);
+  d.access = { method: "root", granted: false };
+  selection.resolve(structuredClone(d));
+  await vi.waitFor(() => expect(document.querySelector("#access-setup")?.getAttribute("aria-busy")).toBe("false"));
+  expect(document.querySelector('[data-action="use_root"]')?.getAttribute("aria-pressed")).toBe("true");
+  expect(document.activeElement?.classList.contains("access-methods")).toBe(true);
+  expect(backend.run).toHaveBeenLastCalledWith("use_root", undefined);
+
+  backend.run.mockRejectedValueOnce(new Error("Switch failed"));
+  click('[data-action="use_axmanager"]');
+  await vi.waitFor(() => expect(document.querySelector(".error-banner")?.textContent).toContain("Switch failed"));
+  await vi.waitFor(() => expect(document.querySelector("#access-setup")?.getAttribute("aria-busy")).toBe("false"));
+  expect(document.querySelector('[data-action="use_root"]')?.getAttribute("aria-pressed")).toBe("true");
+  click('.mobile-nav [data-section="tools"]');
+  expect(document.querySelector("#access-setup")).toBeNull();
+  click('[data-action="access-setup"]');
+  await vi.waitFor(() => expect(document.activeElement?.id).toBe("access-setup"));
+  expect(document.querySelectorAll("#access-setup")).toHaveLength(1);
+  expect(backend.run).toHaveBeenCalledTimes(3);
 });
