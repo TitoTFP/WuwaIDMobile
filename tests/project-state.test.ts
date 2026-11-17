@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
-import { compatibleGameVersion, installationPrerequisites, readiness } from "../src/model";
+import { compatibleGameVersion, installationPrerequisites, readiness, initialDashboard, loadCheck } from "../src/model";
 import type { Dashboard, UiState } from "../src/model";
 import { renderAccess, renderCustomize, renderProgress, renderTools } from "../src/panels";
 
 function dashboard(): Dashboard {
   return {
     mode: "native", platformSupported: true, storageWritable: true, blocker: null,
+    checks: { bootstrap: loadCheck("ready"), access: loadCheck("ready"), release: loadCheck("ready"), storage: loadCheck("ready") },
     release: { tag: "v3.7.1-id.1", gameVersion: "3.7.1", assetName: "translation.pak",
       downloadUrl: "https://github.com/TitoTFP/WuwaID/releases/download/v3.7.1-id.1/translation.pak",
       htmlUrl: "https://github.com/TitoTFP/WuwaID/releases/tag/v3.7.1-id.1", size: 100, sha256: "a".repeat(64) },
@@ -28,6 +29,37 @@ function tools(s: UiState) { document.body.innerHTML = renderTools(s); }
 function action(name: string): HTMLButtonElement {
   return document.querySelector<HTMLButtonElement>(`[data-action="${name}"]`)!;
 }
+
+describe("progressive startup gates", () => {
+  it("does not offer missing-manager setup before local metadata and access are checked", () => {
+    const d = initialDashboard("native");
+    expect(readiness(d).ready).toBe(false);
+    document.body.innerHTML = renderAccess(state(d));
+    expect(document.querySelector('[data-action="setup-axmanager"]')).toBeNull();
+    d.checks.bootstrap = loadCheck("ready");
+    d.platformSupported = true;
+    document.body.innerHTML = renderAccess(state(d));
+    expect(document.querySelector('[data-action="setup-axmanager"]')).toBeNull();
+    expect(action("check-access").disabled).toBe(false);
+  });
+
+  it.each(["not_checked", "loading", "error"] as const)("blocks mutations despite stale facts while storage is %s", (status) => {
+    const d = dashboard();
+    d.patch.installed = true;
+    d.patch.healthy = true;
+    d.checks.storage = loadCheck(status, status === "error" ? "Storage unavailable" : null);
+    expect(installationPrerequisites(d)).toBe(false);
+    expect(readiness(d).ready).toBe(false);
+    tools(state(d));
+    expect(action("repair").disabled).toBe(true);
+    expect(action("uninstall").disabled).toBe(true);
+    customize(state(d));
+    expect(document.querySelector<HTMLButtonElement>("#apply-uid")!.disabled).toBe(true);
+    d.patch.recoveryPending = true;
+    tools(state(d));
+    expect(action("repair").disabled).toBe(true);
+  });
+});
 
 describe("installation prerequisites", () => {
   it("accepts patch-level differences but rejects other version lines and malformed versions", () => {
@@ -159,6 +191,7 @@ describe("maintenance transitions", () => {
   it.each(["legacy", "recovery"])("allows offline %s without enabling uninstall or UID mutation", (pending) => {
     const d = dashboard();
     d.release = null;
+    d.checks.release = loadCheck("error", "Offline");
     d.blocker = "Offline";
     d.patch.installed = pending === "recovery";
     d.patch.recoveryPending = pending === "recovery";
@@ -175,6 +208,7 @@ describe("maintenance transitions", () => {
     d.patch.installed = true;
     d.patch.healthy = true;
     d.release = null;
+    d.checks.release = loadCheck("error", "Offline");
     d.blocker = "Offline";
     tools(state(d));
     expect(action("uninstall").disabled).toBe(false);

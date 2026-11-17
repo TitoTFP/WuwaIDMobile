@@ -139,6 +139,15 @@ class GameStoragePlugin(private val activity: Activity) : Plugin(activity) {
   }
 
   @Command
+  fun bootstrap(invoke: Invoke) {
+    val args = invoke.parseArgs(ProbeArgs::class.java)
+    dispatch(invoke) {
+      requestId = args.requestId
+      bootstrapDevice(activity, accessMethod, selectedGamePackage)
+    }
+  }
+
+  @Command
   fun probe(invoke: Invoke) {
     val args = invoke.parseArgs(ProbeArgs::class.java)
     dispatch(invoke) {

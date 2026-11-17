@@ -5,6 +5,7 @@ import {
   installationPrerequisites,
   accessReadiness,
   readiness,
+  checkLabel,
   type Scenario,
   type Progress,
   type UiState,
@@ -41,6 +42,8 @@ function button(
 
 export function renderAccess(state: UiState): string {
   const d = state.dashboard;
+  if (d.checks.bootstrap.status !== "ready")
+    return `<section id="access-setup" class="card access-card"><h2>Akses game</h2><p class="muted">${escapeHtml(checkLabel(d.checks.bootstrap))}</p></section>`;
   if (!d.platformSupported) return "";
   const access = accessReadiness(d);
   const methods = (["axmanager", "shizuku", "root"] as const).map((method) =>
@@ -48,7 +51,10 @@ export function renderAccess(state: UiState): string {
   ).join("");
   let guidance: string;
   let actions: string;
-  if (d.access.method === "axmanager") {
+  if (d.checks.access.status !== "ready") {
+    guidance = d.checks.access.error ? `<p class="muted">${escapeHtml(d.checks.access.error)}</p>` : "";
+    actions = button("check-access", "Periksa akses", state.busy);
+  } else if (d.access.method === "axmanager") {
     guidance = `<p class="muted access-description">Direkomendasikan · Android 8+ · Profil utama · Aplikasi/server 3.0.0+</p>
       ${d.axmanager.installed && !d.axmanager.supported
         ? `<p class="muted">Periksa syarat di atas. Perbarui aplikasi/server bila perlu, atau pilih metode lain.</p>` : ""}`;
@@ -73,7 +79,7 @@ export function renderAccess(state: UiState): string {
       <span class="status-badge ${access.ready ? "good" : "warning"}">${icon(access.ready ? "check" : "info")}${escapeHtml(access.label)}</span>
       ${guidance}
       <div class="actions">${actions}</div>
-      ${button("refresh", `${icon("refresh")} Periksa akses`, state.busy, "text-button")}
+      ${d.checks.access.status === "ready" ? button("refresh", `${icon("refresh")} Periksa akses`, state.busy, "text-button") : ""}
     </div>
   </section>`;
 }
@@ -85,13 +91,15 @@ export function renderProgress(label: string, progress: Progress | null): string
 
 export function renderCustomize(state: UiState): string {
   const d = state.dashboard;
+  if (d.checks.bootstrap.status !== "ready")
+    return `<section class="page-heading"><h1>Kustomisasi</h1></section><section class="card"><p class="muted">${escapeHtml(checkLabel(d.checks.bootstrap))}</p></section>`;
   if (!d.uidAvailable)
     return `<section class="page-heading"><h1>Kustomisasi</h1></section><section class="card unavailable-studio"><h2>Perlu Android</h2><p class="muted">Gunakan aplikasi Android dengan Shizuku, Root, atau AxManager.</p><button class="text-button" data-section="home">Ke beranda ${icon("arrow")}</button></section>`;
   const status = readiness(d);
   const canCustomize = !state.busy && status.ready;
   const draft = state.uidDraft.trim();
-  const original = d.uid.original || "UID asli game";
-  const current = d.uid.custom ?? original;
+  const original = d.checks.storage.status === "ready" ? (d.uid.original || "UID asli game") : checkLabel(d.checks.storage);
+  const current = d.checks.storage.status === "ready" ? (d.uid.custom ?? original) : original;
   const canApply =
     canCustomize &&
     draft.length > 0 &&
@@ -103,6 +111,7 @@ export function renderCustomize(state: UiState): string {
       <section class="card uid-editor" aria-labelledby="uid-title">
         <div class="card-header"><h2 id="uid-title">UID kustom</h2>${icon("customize")}</div>
         ${gate ? `<p class="muted uid-gate">${escapeHtml(gate)}</p>` : ""}
+        ${d.checks.storage.status !== "ready" && accessReadiness(d).ready ? button("refresh", "Periksa resource", state.busy) : ""}
         <form id="uid-form">
           <label class="field-label" for="uid-input">Teks pengganti</label>
           <input class="uid-input" id="uid-input" name="customUid" type="text" maxlength="${UID_MAX_LENGTH}" value="${escapeHtml(state.uidDraft)}" placeholder="Rover Indonesia" autocomplete="off" spellcheck="false" aria-describedby="uid-help" ${state.busy ? "disabled" : ""} />
@@ -122,6 +131,8 @@ export function renderTools(state: UiState): string {
   const dependenciesReady = installationPrerequisites(d);
   const canUninstall =
     d.platformSupported &&
+    d.checks.storage.status === "ready" &&
+    accessReadiness(d).ready &&
     d.storageWritable &&
     d.game.installed &&
     d.access.granted &&
@@ -130,13 +141,15 @@ export function renderTools(state: UiState): string {
   const canRecover =
     d.platformSupported &&
     d.storageWritable &&
+    d.checks.storage.status === "ready" &&
+    accessReadiness(d).ready &&
     d.game.installed &&
     d.access.granted &&
     d.resource.ready &&
     (d.patch.recoveryPending || d.patch.legacyPending);
   const canRepair =
     !state.busy && (canRecover || (dependenciesReady && d.patch.installed));
-  const currentScenario: Scenario = !d.game.installed
+  const currentScenario: Scenario | null = d.checks.storage.status !== "ready" ? null : !d.game.installed
     ? "game_missing"
     : !compatibleGameVersion(d, d.game.version)
       ? "unsupported"
@@ -161,7 +174,7 @@ export function renderTools(state: UiState): string {
               : d.patch.installed
                 ? "installed"
                 : d.access.method === "root" ? "root_ready" : d.access.method === "axmanager" ? "axmanager_ready" : "ready";
-  const scenarioOptions = scenarios
+  const scenarioOptions = `<option value="" disabled${currentScenario === null ? " selected" : ""}>Pilih skenario</option>` + scenarios
     .map(
       ({ id, label }) =>
         `<option value="${id}"${id === currentScenario ? " selected" : ""}>${label}</option>`,
@@ -197,15 +210,15 @@ export function renderTools(state: UiState): string {
       <section class="card maintenance-card" aria-labelledby="maintenance-title"><div class="card-header"><h2 id="maintenance-title">Pengelolaan</h2></div><div class="tool-list">${rows}</div></section>
     <div class="tools-detail-grid">
       <details class="card technical-details"><summary>Detail teknis</summary><dl class="info-list">
-        <div class="info-row"><dt>Game</dt><dd>${d.game.installed ? "Terpasang" : "Belum terpasang"} · ${escapeHtml(d.game.version)}<code>${escapeHtml(d.game.packageName)}</code></dd></div>
-        <div class="info-row"><dt>Shizuku</dt><dd>${!d.shizuku.installed ? "Belum terpasang" : `${d.shizuku.running ? "Aktif" : "Tidak aktif"} · ${d.shizuku.granted ? "Diizinkan" : "Belum diizinkan"}`}</dd></div>
-        <div class="info-row"><dt>AxManager</dt><dd>${!d.axmanager.installed ? "Tidak tersedia / AX-Stealth" : `${escapeHtml(d.axmanager.version)} · ${!d.axmanager.supported ? "Belum didukung" : d.access.method !== "axmanager" ? "Tidak dipilih" : d.axmanager.running ? "Akses server tersedia" : "Belum tersambung / belum diizinkan"}`}</dd></div>
-        <div class="info-row"><dt>Akses terpilih</dt><dd>${ACCESS_LABELS[d.access.method]} · ${accessReadiness(d).ready ? "Terhubung" : "Belum terhubung"}</dd></div>
-        <div class="info-row"><dt>Resource</dt><dd>${d.resource.ready ? "Siap" : "Belum siap"} · ${escapeHtml(d.resource.version)}</dd></div>
-        <div class="info-row"><dt>Terjemahan</dt><dd>${d.patch.installed ? "Terpasang" : "Belum terpasang"} · ${d.patch.healthy ? "Sehat" : "Perlu pemeriksaan"} · ${escapeHtml(d.patch.version)}${d.patch.recoveryPending ? " · Pemulihan tertunda" : ""}</dd></div>
-        <div class="info-row"><dt>Rilis terbaru</dt><dd>${escapeHtml(d.mode === "mock" ? "3.7.0-R2 (contoh)" : (d.release?.tag ?? "Belum dimuat"))}</dd></div>
-        <div class="info-row"><dt>Diperiksa</dt><dd>${escapeHtml(new Date(d.lastChecked).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }))}</dd></div>
-        ${d.uidAvailable ? `<div class="info-row"><dt>Tampilan UID</dt><dd>${escapeHtml(d.uid.custom ?? d.uid.original)}</dd></div>` : ""}
+        <div class="info-row"><dt>Game</dt><dd>${d.checks.bootstrap.status !== "ready" ? checkLabel(d.checks.bootstrap) : `${d.game.installed ? "Terpasang" : "Belum terpasang"} · ${escapeHtml(d.game.version)}`}<code>${escapeHtml(d.game.packageName)}</code></dd></div>
+        <div class="info-row"><dt>Shizuku</dt><dd>${d.checks.access.status !== "ready" ? checkLabel(d.checks.access) : !d.shizuku.installed ? "Belum terpasang" : `${d.shizuku.running ? "Aktif" : "Tidak aktif"} · ${d.shizuku.granted ? "Diizinkan" : "Belum diizinkan"}`}</dd></div>
+        <div class="info-row"><dt>AxManager</dt><dd>${d.checks.access.status !== "ready" ? checkLabel(d.checks.access) : !d.axmanager.installed ? "Tidak tersedia / AX-Stealth" : `${escapeHtml(d.axmanager.version)} · ${!d.axmanager.supported ? "Belum didukung" : d.access.method !== "axmanager" ? "Tidak dipilih" : d.axmanager.running ? "Akses server tersedia" : "Belum tersambung / belum diizinkan"}`}</dd></div>
+        <div class="info-row"><dt>Akses terpilih</dt><dd>${d.checks.bootstrap.status !== "ready" ? checkLabel(d.checks.bootstrap) : `${ACCESS_LABELS[d.access.method]} · ${d.checks.access.status !== "ready" ? checkLabel(d.checks.access) : accessReadiness(d).ready ? "Terhubung" : "Belum terhubung"}`}</dd></div>
+        <div class="info-row"><dt>Resource</dt><dd>${d.checks.storage.status !== "ready" ? checkLabel(d.checks.storage) : `${d.resource.ready ? "Siap" : "Belum siap"} · ${escapeHtml(d.resource.version)}`}</dd></div>
+        <div class="info-row"><dt>Terjemahan</dt><dd>${d.checks.storage.status !== "ready" ? checkLabel(d.checks.storage) : `${d.patch.installed ? "Terpasang" : "Belum terpasang"} · ${d.patch.healthy ? "Sehat" : "Perlu pemeriksaan"} · ${escapeHtml(d.patch.version)}${d.patch.recoveryPending ? " · Pemulihan tertunda" : ""}`}</dd></div>
+        <div class="info-row"><dt>Rilis terbaru</dt><dd>${escapeHtml(d.release?.tag ?? checkLabel(d.checks.release))}</dd></div>
+        <div class="info-row"><dt>Diperiksa</dt><dd>${d.lastChecked ? escapeHtml(new Date(d.lastChecked).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })) : "—"}</dd></div>
+        ${d.uidAvailable && d.checks.storage.status === "ready" ? `<div class="info-row"><dt>Tampilan UID</dt><dd>${escapeHtml(d.uid.custom ?? d.uid.original)}</dd></div>` : ""}
         ${d.patch.message ? `<div class="info-row"><dt>Pemasangan</dt><dd>${escapeHtml(d.patch.message)}</dd></div>` : ""}
       </dl></details>
       ${d.mode === "mock" ? `<section class="card scenario-card"><label class="field-label" for="scenario-select">Skenario simulasi</label><select class="select" id="scenario-select"${state.busy ? " disabled" : ""}>${scenarioOptions}</select></section>` : ""}

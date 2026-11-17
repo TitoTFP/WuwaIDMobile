@@ -11,7 +11,9 @@ pub fn run() {
     let builder = tauri::Builder::default()
         .manage(std::sync::Arc::new(native::NativeState::default()))
         .invoke_handler(tauri::generate_handler![
-            native::wuwa_load,
+            native::wuwa_bootstrap,
+            native::wuwa_release,
+            native::wuwa_inspect,
             native::wuwa_access_status,
             native::wuwa_run,
             native::wuwa_open_setup,

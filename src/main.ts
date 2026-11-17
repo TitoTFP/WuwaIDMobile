@@ -3,11 +3,15 @@ import { diagnosticExportMessage } from "./diagnostics";
 import { appUpdateBusy, handleAppUpdate, initAppUpdates, renderAppUpdate } from "./app-update";
 import {
   ACCESS_LABELS,
-  CONTENT_VERSION,
   UID_MAX_LENGTH,
   compatibleGameVersion,
   accessReadiness,
   readiness,
+  initialDashboard,
+  loadCheck,
+  checkLabel,
+  type AccessSnapshot,
+  type InspectionSnapshot,
   type Operation,
   type Scenario,
   type Section,
@@ -19,7 +23,7 @@ import { escapeHtml as esc, icon } from "./ui";
 const app = document.querySelector<HTMLDivElement>("#app")!;
 const toast = document.querySelector<HTMLDivElement>("#toast")!;
 const dialog = document.querySelector<HTMLDialogElement>("#confirm-dialog")!;
-let state: UiState;
+let state: UiState = { dashboard: initialDashboard(api.mode), busy: false, progress: null, uidDraft: "" };
 let section: Section = "home";
 let renderedSection: Section | undefined;
 const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
@@ -35,6 +39,7 @@ let showBusyProgress = true;
 let setupArmed = false;
 let setupLeft = false;
 let setupRefreshPending = false;
+let inspectionRequested = false;
 
 function markSetupLeave() {
   if (setupArmed) setupLeft = true;
@@ -49,19 +54,109 @@ function markSetupReturn() {
   void refreshSetupReturn();
 }
 
+function invalidateStorage() {
+  const d = state.dashboard;
+  d.checks.storage = loadCheck();
+  d.storageWritable = false;
+  d.blocker = null;
+  d.resource = { ready: false, version: "" };
+  d.patch = { installed: false, healthy: false, recoveryPending: false, legacyPending: false, version: "" };
+  d.uid = { original: "", custom: null };
+}
+
+function applyAccess(snapshot: AccessSnapshot, reset = false) {
+  if (reset || !snapshot.access.granted || snapshot.access.method !== state.dashboard.access.method)
+    invalidateStorage();
+  Object.assign(state.dashboard, snapshot);
+  state.dashboard.checks.access = loadCheck("ready");
+}
+
+function applyInspection(snapshot: InspectionSnapshot) {
+  const { inspection, ...data } = snapshot;
+  const unchangedDraft = state.uidDraft === (state.dashboard.uid.custom ?? "");
+  Object.assign(state.dashboard, data);
+  state.dashboard.checks.access = loadCheck("ready");
+  state.dashboard.checks.storage = loadCheck(inspection, inspection === "error" ? snapshot.blocker : null);
+  if (unchangedDraft) state.uidDraft = snapshot.uid.custom ?? "";
+}
+
+async function loadBootstrap() {
+  const d = state.dashboard;
+  if (d.checks.bootstrap.status === "loading") return;
+  d.checks.bootstrap = loadCheck("loading");
+  render();
+  try {
+    const snapshot = await api.bootstrap();
+    d.mode = snapshot.mode;
+    d.platformSupported = snapshot.platformSupported;
+    d.uidAvailable = snapshot.uidAvailable;
+    d.game = snapshot.device.game;
+    d.access.method = snapshot.device.accessMethod;
+    d.checks.bootstrap = loadCheck("ready");
+    setupRefreshPending = d.platformSupported;
+  } catch (cause) {
+    d.checks.bootstrap = loadCheck("error", String(cause));
+  } finally {
+    render();
+    void refreshSetupReturn();
+  }
+}
+
+async function loadRelease() {
+  const d = state.dashboard;
+  if (d.checks.release.status === "loading") return;
+  d.checks.release = loadCheck("loading");
+  render();
+  try {
+    d.release = await api.release();
+    d.checks.release = loadCheck("ready");
+  } catch (cause) {
+    d.release = null;
+    d.checks.release = loadCheck("error", String(cause));
+  } finally {
+    render();
+  }
+}
+
 async function refreshSetupReturn() {
-  if (!state || !setupRefreshPending || state.busy || appUpdateBusy() ||
+  const d = state.dashboard;
+  if (!setupRefreshPending || state.busy || appUpdateBusy() ||
+    d.checks.bootstrap.status !== "ready" || d.checks.access.status === "loading" ||
     document.visibilityState === "hidden") return;
   setupRefreshPending = false;
+  if (!d.platformSupported) return;
+  d.checks.access = loadCheck("loading");
+  render();
+  try {
+    applyAccess(await api.accessStatus());
+  } catch (cause) {
+    d.checks.access = loadCheck("error", String(cause));
+    invalidateStorage();
+  } finally {
+    render();
+    void inspectWhenNeeded();
+    if (setupRefreshPending) void refreshSetupReturn();
+  }
+}
+
+async function inspectStorage() {
+  inspectionRequested = false;
   await execute(async () => {
-    const snapshot = await api.accessStatus();
-    state.dashboard = {
-      ...state.dashboard, ...snapshot,
-      storageWritable: state.dashboard.storageWritable && snapshot.access.granted,
-      lastChecked: Date.now(),
-    };
-    notify("Status akses diperbarui.");
-  }, "Memeriksa akses setelah kembali…", { reloadOnError: false });
+    state.dashboard.checks.storage = loadCheck("loading");
+    render();
+    try {
+      applyInspection(await api.inspect());
+    } catch (cause) {
+      state.dashboard.checks.storage = loadCheck("error", String(cause));
+      throw cause;
+    }
+  }, "Memeriksa resource dan patch…");
+}
+
+async function inspectWhenNeeded() {
+  if (state.dashboard.checks.storage.status !== "not_checked") inspectionRequested = false;
+  if (!inspectionRequested || state.busy || appUpdateBusy() || !accessReadiness(state.dashboard).ready) return;
+  await inspectStorage();
 }
 
 window.addEventListener("blur", markSetupLeave);
@@ -118,21 +213,25 @@ function renderHome(panelState: UiState) {
   const d = state.dashboard;
   const ready = readiness(d);
   const access = accessReadiness(d);
-  const disabled = state.busy || appUpdateBusy() || !d.platformSupported ? "disabled" : "";
+  const disabled = panelState.busy || !d.platformSupported ? "disabled" : "";
   let primary: { action: string; label: string } = {
     action: "install",
     label: "Pasang terjemahan",
   };
-  if (!d.platformSupported)
+  if (d.checks.bootstrap.status !== "ready")
+    primary = { action: "bootstrap", label: "Muat perangkat" };
+  else if (!d.platformSupported)
     primary = { action: "refresh", label: "Perlu Android" };
   else if (!d.game.installed)
     primary = { action: "setup-game", label: "Pasang game" };
   else if (!access.ready)
     primary = { action: "access-setup", label: "Atur akses game" };
+  else if (d.checks.storage.status !== "ready")
+    primary = { action: "refresh", label: "Periksa resource" };
   else if (d.patch.legacyPending || d.patch.recoveryPending)
     primary = { action: "tools", label: "Buka Perawatan" };
-  else if (d.mode === "native" && !d.release)
-    primary = { action: "refresh", label: "Muat ulang rilis" };
+  else if (d.checks.release.status !== "ready" || !d.release)
+    primary = { action: "release", label: "Periksa rilis" };
   else if (!compatibleGameVersion(d, d.game.version))
     primary = { action: "tools", label: "Lihat kompatibilitas" };
   else if (!d.resource.ready)
@@ -152,12 +251,13 @@ function renderHome(panelState: UiState) {
   const deviceRows = [
     {
       name: "Wuthering Waves",
-      value: !d.platformSupported
+      value: d.checks.bootstrap.status !== "ready" ? checkLabel(d.checks.bootstrap) : !d.platformSupported
         ? "Perlu Android"
         : d.game.installed
           ? `${d.game.packageName.endsWith(".samsung") ? "Galaxy Store" : "Global"} · ${d.game.version}`
           : "Belum terpasang",
-      ok: d.game.installed && compatibleGameVersion(d, d.game.version),
+      ok: d.checks.bootstrap.status === "ready" && d.checks.release.status === "ready" &&
+        d.game.installed && compatibleGameVersion(d, d.game.version),
       icon: "game",
     },
     {
@@ -168,23 +268,21 @@ function renderHome(panelState: UiState) {
     },
     {
       name: "Resource",
-      value: !d.platformSupported
+      value: d.checks.storage.status !== "ready" ? checkLabel(d.checks.storage) : !d.platformSupported
         ? "Perlu Android"
         : d.resource.ready
           ? d.resource.version
           : "Unduhan belum selesai",
-      ok: d.resource.ready && compatibleGameVersion(d, d.resource.version),
+      ok: d.checks.storage.status === "ready" && d.checks.release.status === "ready" &&
+        d.resource.ready && compatibleGameVersion(d, d.resource.version),
       icon: "folder",
     },
   ];
   const contentVersion =
-    d.mode === "mock" ? CONTENT_VERSION : (d.release?.tag ?? "Belum dimuat");
-  const gameLine =
-    d.mode === "mock"
-      ? "3.7.0"
-      : d.release
-        ? `${d.release.gameVersion.split(".").slice(0, 2).join(".")}.*`
-        : "—";
+    d.release?.tag ?? checkLabel(d.checks.release);
+  const gameLine = d.release
+    ? `${d.release.gameVersion.split(".").slice(0, 2).join(".")}.*`
+    : "—";
   const primaryIcon = primary.action === "launch_game" ? "external"
     : primary.action === "tools" ? "tools"
       : primary.action === "refresh" ? "refresh"
@@ -196,13 +294,15 @@ function renderHome(panelState: UiState) {
       <section class="card translation-card" aria-labelledby="translation-title">
         <div class="card-header"><h2 id="translation-title">Terjemahan</h2><span class="status-badge ${ready.ready ? "good" : "warning"}">${icon(ready.ready ? "check" : "info")}${esc(ready.ready && d.patch.installed ? "Terpasang" : ready.label)}</span></div>
         ${!ready.ready ? `<p class="package-detail">${esc(ready.detail)}</p>` : ""}
-        <dl class="package-facts"><div><dt>Terbaru</dt><dd>${esc(contentVersion)}</dd></div><div><dt>Untuk game</dt><dd>${esc(gameLine)}</dd></div>${d.patch.installed ? `<div><dt>Terpasang</dt><dd>${esc(d.patch.version)}</dd></div>` : ""}</dl>
-        <div class="package-actions"><button class="btn btn-primary" data-action="${primary.action}" ${disabled}>${icon(primaryIcon)} ${primary.label}</button>${d.patch.installed && ready.ready ? `<button class="text-button" data-action="install" ${disabled}>${icon("refresh")} Pasang ulang</button>` : ""}</div>
+        <dl class="package-facts"><div><dt>Terbaru</dt><dd>${esc(contentVersion)}</dd></div><div><dt>Untuk game</dt><dd>${esc(gameLine)}</dd></div>${d.checks.storage.status === "ready" && d.patch.installed ? `<div><dt>Terpasang</dt><dd>${esc(d.patch.version)}</dd></div>` : ""}</dl>
+        ${d.checks.release.status === "error" ? `<p class="package-detail">${esc(d.checks.release.error ?? "Rilis gagal dimuat.")}</p>` : ""}
+        <button class="text-button" data-action="release" ${state.busy || appUpdateBusy() || d.checks.release.status === "loading" ? "disabled" : ""}>${icon("refresh")} Periksa rilis</button>
+        <div class="package-actions"><button class="btn btn-primary" data-action="${primary.action}" ${disabled || (primary.action === "release" && d.checks.release.status === "loading" ? "disabled" : "")}>${icon(primaryIcon)} ${primary.label}</button>${d.patch.installed && ready.ready ? `<button class="text-button" data-action="install" ${disabled}>${icon("refresh")} Pasang ulang</button>` : ""}</div>
       </section>
       ${renderAccess(panelState)}
     </div>
       <section class="card device-card" aria-labelledby="device-title">
-        <div class="card-header"><h2 id="device-title">Perangkat</h2><button class="icon-btn" data-action="refresh" aria-label="Periksa perangkat" title="Periksa perangkat" ${state.busy || appUpdateBusy() ? "disabled" : ""}>${icon("refresh")}</button></div>
+        <div class="card-header"><h2 id="device-title">Perangkat</h2><button class="icon-btn" data-action="refresh" aria-label="Periksa perangkat" title="Periksa perangkat" ${panelState.busy || !d.platformSupported ? "disabled" : ""}>${icon("refresh")}</button></div>
         <div class="device-list">${deviceRows.map((row) => `<div class="device-row"><span class="device-icon">${icon(row.icon)}</span><div><strong>${row.name}</strong><p>${esc(row.value)}</p></div><span class="device-check ${row.ok ? "" : "pending"}" aria-label="${row.ok ? "Siap" : "Perlu perhatian"}">${icon(row.ok ? "check" : "info")}</span></div>`).join("")}</div>
         ${d.platformSupported ? `<button class="text-button" data-action="access-setup" ${panelState.busy ? "disabled" : ""}>Atur akses game ${icon("arrow")}</button>` : ""}
       </section>
@@ -229,7 +329,8 @@ function render() {
     else button.removeAttribute("aria-current");
   });
   const content = app.querySelector<HTMLElement>("#main-content")!;
-  const panelState = appUpdateBusy() ? { ...state, busy: true } : state;
+  const panelState = appUpdateBusy() || state.dashboard.checks.bootstrap.status !== "ready" ||
+    state.dashboard.checks.access.status === "loading" ? { ...state, busy: true } : state;
   const previousAccess = content.querySelector<HTMLElement>("#access-setup");
   const animateAccess = previousAccess && renderedSection === section && !reducedMotion.matches &&
     (previousAccess.dataset.accessMethod !== state.dashboard.access.method ||
@@ -239,9 +340,10 @@ function render() {
   const previousScroll = previousBox ? { x: window.scrollX, y: window.scrollY } : null;
   content.innerHTML = `
     ${error ? `<div class="error-banner" role="alert">${icon("info")}<span>${esc(error)}</span><button class="icon-btn" data-action="dismiss-error" aria-label="Tutup pesan">${icon("close")}</button></div>` : ""}
+    ${state.dashboard.checks.bootstrap.status === "error" ? `<div class="error-banner" role="alert"><span>${esc(state.dashboard.checks.bootstrap.error ?? "Perangkat gagal dimuat.")}</span><button class="btn btn-secondary" data-action="bootstrap">Coba lagi</button></div>` : ""}
     ${state.busy && showBusyProgress ? renderProgress(busyLabel, fileProgress ? state.progress : null) : ""}
     ${section === "home" ? renderHome(panelState) : section === "customize" ? renderCustomize(panelState) : renderTools(panelState)}
-    ${renderAppUpdate(state.busy, section === "tools")}`;
+    ${renderAppUpdate(panelState.busy, section === "tools")}`;
   const nextAccess = content.querySelector<HTMLElement>("#access-setup");
   if (previousBox && previousScroll && nextAccess) {
     const nextBox = nextAccess.getBoundingClientRect();
@@ -290,8 +392,9 @@ function render() {
 }
 
 async function execute(work: () => Promise<void>, label = "Memeriksa status…",
-  options: { fileProgress?: boolean; reloadOnError?: boolean; showProgress?: boolean } = {}) {
-  if (state.busy || appUpdateBusy()) return;
+  options: { fileProgress?: boolean; showProgress?: boolean } = {}) {
+  if (state.busy || appUpdateBusy() || state.dashboard.checks.bootstrap.status !== "ready" ||
+    state.dashboard.checks.access.status === "loading") return;
   const busyTrace = api.beginBusy();
   state.busy = true;
   state.progress = null;
@@ -306,13 +409,6 @@ async function execute(work: () => Promise<void>, label = "Memeriksa status…",
   } catch (cause) {
     error = cause instanceof Error ? cause.message : String(cause);
     notify(error);
-    if (state.dashboard.mode === "native" && options.reloadOnError !== false) {
-      try {
-        state.dashboard = await api.load();
-      } catch (refreshError) {
-        error += ` Gagal memuat ulang status: ${String(refreshError)}`;
-      }
-    }
   } finally {
     try {
       await api.endBusy();
@@ -321,6 +417,7 @@ async function execute(work: () => Promise<void>, label = "Memeriksa status…",
       state.progress = null;
       render();
       void refreshSetupReturn();
+      void inspectWhenNeeded();
     }
   }
 }
@@ -341,7 +438,24 @@ async function operate(operation: Operation, uidText?: string) {
     use_axmanager: "Memilih AxManager…",
   };
   await execute(async () => {
-    state.dashboard = await api.run(operation, uidText);
+    let result;
+    try {
+      result = await api.run(operation, uidText);
+    } catch (cause) {
+      invalidateStorage();
+      inspectionRequested = false;
+      setupRefreshPending = true;
+      throw cause;
+    }
+    if (result.kind === "access") {
+      applyAccess(result.snapshot, operation !== "launch_game");
+    } else {
+      applyInspection(result.snapshot);
+      if (result.release) {
+        state.dashboard.release = result.release;
+        state.dashboard.checks.release = loadCheck("ready");
+      }
+    }
     if (operation === "use_root" || operation === "use_shizuku" || operation === "use_axmanager") return;
     if (
       operation === "apply_uid" ||
@@ -389,17 +503,20 @@ app.addEventListener("click", async (event) => {
     "[data-section], [data-action], .brand",
   );
   if (!button || button.hasAttribute("disabled")) return;
-  if (!state) return;
   if (button.dataset.section || button.classList.contains("brand")) {
     event.preventDefault();
     section = (button.dataset.section as Section) || "home";
+    inspectionRequested = section !== "home" && state.dashboard.checks.storage.status === "not_checked";
     render();
     window.scrollTo({ top: 0, behavior: "instant" });
+    void inspectWhenNeeded();
     return;
   }
   const action = button.dataset.action;
-  if (await handleAppUpdate(action, state.busy)) {
+  if (await handleAppUpdate(action, state.busy || state.dashboard.checks.bootstrap.status !== "ready" ||
+    state.dashboard.checks.access.status === "loading")) {
     void refreshSetupReturn();
+    void inspectWhenNeeded();
     return;
   }
   if (action === "dismiss-error") {
@@ -408,6 +525,7 @@ app.addEventListener("click", async (event) => {
   } else if (action === "access-setup") {
     if (section !== "home") {
       section = "home";
+      inspectionRequested = false;
       render();
     }
     const setup = app.querySelector<HTMLElement>("#access-setup");
@@ -415,12 +533,19 @@ app.addEventListener("click", async (event) => {
     setup?.focus({ preventScroll: true });
   } else if (action === "tools") {
     section = "tools";
+    inspectionRequested = state.dashboard.checks.storage.status === "not_checked";
     render();
-  } else if (action === "refresh")
-    await execute(async () => {
-      state.dashboard = await api.load();
-      notify("Status diperbarui.");
-    });
+    void inspectWhenNeeded();
+  } else if (action === "bootstrap") {
+    void loadBootstrap();
+  } else if (action === "release") {
+    if (!state.busy && !appUpdateBusy()) void loadRelease();
+  } else if (action === "check-access") {
+    setupRefreshPending = true;
+    void refreshSetupReturn();
+  } else if (action === "refresh") {
+    await inspectStorage();
+  }
   else if (action === "restore-uid") await operate("restore_uid");
   else if (action === "uninstall") dialog.showModal();
   else if (action === "save-diagnostics" || action === "share-diagnostics")
@@ -443,7 +568,7 @@ app.addEventListener("click", async (event) => {
           throw cause;
         }
         notify("Kembali ke sini setelah pengaturan selesai.");
-      }, "Membuka pengaturan…", { reloadOnError: false });
+      }, "Membuka pengaturan…");
     } else {
       section = "tools";
       render();
@@ -509,20 +634,14 @@ api.subscribeProgress((progress) => {
   }
 });
 
-async function start() {
-  try {
-    const dashboard = await api.load();
-    state = {
-      dashboard,
-      busy: false,
-      progress: null,
-      uidDraft: dashboard.uid.custom ?? "",
-    };
+function start() {
+  render();
+  void loadBootstrap();
+  void loadRelease();
+  void initAppUpdates(() => {
     render();
-    void initAppUpdates(() => { render(); void refreshSetupReturn(); });
-  } catch (cause) {
-    app.innerHTML = `<main class="startup-error"><h1>Gagal memuat</h1><p>${esc(String(cause))}</p><button class="btn btn-primary" id="retry-start">Coba lagi</button></main>`;
-    document.querySelector("#retry-start")!.addEventListener("click", start);
-  }
+    void refreshSetupReturn();
+    void inspectWhenNeeded();
+  });
 }
-void start();
+start();

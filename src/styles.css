@@ -209,8 +209,6 @@ dialog::backdrop { background: #10101999; backdrop-filter: blur(4px); }
 dialog h2 { font-size: 22px; }
 dialog p { font-size: 14px; color: var(--muted); margin: 12px 0 24px; }
 dialog .actions { justify-content: flex-end; }
-.startup-error { padding: 70px 25px; max-width: 650px; margin: auto; }
-.startup-error p { margin: 20px 0; overflow-wrap: anywhere; }
 
 /* Short, one-shot motion; no layout tweening or decorative loops. */
 :root, .app-header, .card, .health-banner, .mobile-nav,

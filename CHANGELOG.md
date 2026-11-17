@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Progressive startup:** render navigation before IPC completes; separate local package/preferences bootstrap, background release metadata, and passive access checks. Inspect resource/patch/UID only on demand or after explicit connection, with independent unchecked/loading/error states and retries. Provider selection and game launch no longer scan storage; offline recovery/removal and fresh transactional installer preflight remain intact.
+- **Startup review:** coalesce navigation queued during busy tracing, keep stale storage/UID facts unchecked after inspection failure, and reserve inspection timestamps for storage responses. Disable refresh controls while their prerequisites are loading.
 - **Access location:** keep provider setup only on Home. Maintenance uses the full width for management and links back to Home when access is unavailable.
 - **Access transitions:** keep the method selector stationary, omit global loading during provider selection, and animate card size/content changes without bypassing busy guards. Interrupted transitions continue from their visible size; reduced-motion preferences disable motion.
 - **Home layout:** swap Access and Device cards: Translation and Access share the top grid, with Device below; mobile follows the same order.

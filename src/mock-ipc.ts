@@ -4,23 +4,34 @@ import {
   CONTENT_VERSION,
   UID_MAX_LENGTH,
   readiness,
+  loadCheck,
+  type InspectionSnapshot,
+  type OperationResult,
+  type ReleaseInfo,
   type Dashboard,
   type Operation,
   type Progress,
   type Scenario,
 } from "./model";
 
-const STORAGE_KEY = "wuwaidmobile.mock-state.v7";
+const STORAGE_KEY = "wuwaidmobile.mock-state.v8";
 const GAME_VERSION = "3.7.0";
 const PACKAGE_NAME = "com.kurogame.wutheringwaves.global";
+const MOCK_RELEASE: ReleaseInfo = {
+  tag: CONTENT_VERSION, gameVersion: GAME_VERSION, assetName: "WuwaID_99_P.pak",
+  htmlUrl: `https://github.com/TitoTFP/WuwaID/releases/tag/${CONTENT_VERSION}`,
+  downloadUrl: `https://github.com/TitoTFP/WuwaID/releases/download/${CONTENT_VERSION}/WuwaID_99_P.pak`,
+  size: 1024, sha256: "a".repeat(64),
+};
 
 function seed(): Dashboard {
   return {
     mode: "mock",
+    checks: { bootstrap: loadCheck("ready"), access: loadCheck("ready"), release: loadCheck("ready"), storage: loadCheck("ready") },
     platformSupported: true,
     storageWritable: true,
     blocker: null,
-    release: null,
+    release: { ...MOCK_RELEASE },
     uidAvailable: true,
     game: { installed: true, version: GAME_VERSION, packageName: PACKAGE_NAME },
     resource: { ready: true, version: GAME_VERSION },
@@ -42,6 +53,11 @@ function seed(): Dashboard {
 function clone(dashboard: Dashboard): Dashboard {
   return {
     ...dashboard,
+    checks: {
+      bootstrap: { ...dashboard.checks.bootstrap }, access: { ...dashboard.checks.access },
+      release: { ...dashboard.checks.release }, storage: { ...dashboard.checks.storage },
+    },
+    release: dashboard.release ? { ...dashboard.release } : null,
     game: { ...dashboard.game },
     resource: { ...dashboard.resource },
     shizuku: { ...dashboard.shizuku },
@@ -49,6 +65,18 @@ function clone(dashboard: Dashboard): Dashboard {
     access: { ...dashboard.access },
     patch: { ...dashboard.patch },
     uid: { ...dashboard.uid },
+  };
+}
+
+function inspectionSnapshot(d: Dashboard): InspectionSnapshot {
+  const inspected = d.access.granted;
+  return {
+    game: { ...d.game }, shizuku: { ...d.shizuku }, axmanager: { ...d.axmanager }, access: { ...d.access },
+    storageWritable: inspected && d.storageWritable, blocker: d.blocker,
+    resource: inspected ? { ...d.resource } : { ready: false, version: "" },
+    patch: inspected ? { ...d.patch } : { installed: false, healthy: false, recoveryPending: false, legacyPending: false, version: "" },
+    uid: inspected ? { ...d.uid } : { original: "", custom: null },
+    lastChecked: Date.now(), inspection: inspected ? "ready" : "not_checked",
   };
 }
 
@@ -61,7 +89,9 @@ function validDashboard(value: unknown): value is Dashboard {
     d.storageWritable === true &&
     d.uidAvailable === true &&
     d.blocker === null &&
-    d.release === null &&
+    d.release?.tag === CONTENT_VERSION &&
+    !!d.checks && Object.values(d.checks).length === 4 &&
+    Object.values(d.checks).every((check) => check.status === "ready" && check.error === null) &&
     !!d.game &&
     typeof d.game.installed === "boolean" &&
     typeof d.game.version === "string" &&
@@ -221,11 +251,12 @@ async function delay(ms: number): Promise<void> {
 async function perform(
   operation: Operation,
   uidText?: string,
-): Promise<Dashboard> {
+): Promise<OperationResult> {
   if (busy) throw new Error("Operasi simulasi lain sedang berjalan.");
   busy = true;
   try {
     const next = clone(dashboard);
+    const offlineRepair = operation === "repair" && (next.patch.recoveryPending || next.patch.legacyPending);
     const phases: Progress[] = [
       { percent: 18, label: "Menyiapkan…" },
       { percent: 58, label: "Memproses…" },
@@ -356,7 +387,12 @@ async function perform(
     next.lastChecked = new Date().toISOString();
     dashboard = next;
     persist(dashboard);
-    return clone(dashboard);
+    if (operation === "use_root" || operation === "use_shizuku" || operation === "use_axmanager" || operation === "launch_game")
+      return { kind: "access", snapshot: { shizuku: { ...next.shizuku }, axmanager: { ...next.axmanager }, access: { ...next.access } } };
+    return {
+      kind: "inspection", snapshot: inspectionSnapshot(next),
+      release: ["install", "apply_uid", "restore_uid", "repair"].includes(operation) && !offlineRepair ? { ...MOCK_RELEASE } : null,
+    };
   } finally {
     busy = false;
   }
@@ -366,12 +402,20 @@ async function perform(
 mockIPC(async (command, args) => {
   const payload = (args ?? {}) as Record<string, unknown>;
   switch (command) {
-    case "wuwa_load": {
-      dashboard = { ...dashboard, lastChecked: new Date().toISOString() };
-      persist(dashboard);
-      return clone(dashboard);
+    case "wuwa_bootstrap":
+      return { mode: "mock", platformSupported: true, uidAvailable: true, device: { game: { ...dashboard.game }, accessMethod: dashboard.access.method } };
+    case "wuwa_release":
+      return { ...MOCK_RELEASE };
+    case "wuwa_inspect": {
+      if (busy) throw new Error("Operasi simulasi lain sedang berjalan.");
+      busy = true;
+      try {
+        await delay(180);
+        return inspectionSnapshot(dashboard);
+      } finally { busy = false; }
     }
     case "wuwa_access_status": {
+      if (busy) throw new Error("Operasi simulasi lain sedang berjalan.");
       return { shizuku: { ...dashboard.shizuku }, axmanager: { ...dashboard.axmanager }, access: { ...dashboard.access } };
     }
     case "wuwa_set_scenario": {

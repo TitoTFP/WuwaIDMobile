@@ -2,10 +2,12 @@
 import { describe, expect, it } from "vitest";
 import { DiagnosticHistory, mockDiagnostics, serializeDiagnostics } from "../src/diagnostics";
 import type { Dashboard } from "../src/model";
+import { loadCheck } from "../src/model";
 
 function dashboard(): Dashboard {
   return {
     mode: "mock", platformSupported: true, storageWritable: true, blocker: null, release: null,
+    checks: { bootstrap: loadCheck("ready"), access: loadCheck("ready"), release: loadCheck("ready"), storage: loadCheck("ready") },
     uidAvailable: true, game: { installed: true, version: "3.7.0", packageName: "game.fixture" },
     resource: { ready: true, version: "3.7.0" }, shizuku: { installed: true, running: true, granted: true },
     axmanager: { installed: false, supported: false, running: false, version: "" },

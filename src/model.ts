@@ -38,8 +38,11 @@ export interface ReleaseInfo {
   size: number;
   sha256: string;
 }
+export type LoadStatus = "not_checked" | "loading" | "ready" | "error";
+export interface LoadCheck { status: LoadStatus; error: string | null }
 export interface Dashboard {
   mode: "mock" | "native";
+  checks: Record<"bootstrap" | "access" | "release" | "storage", LoadCheck>;
   platformSupported: boolean;
   storageWritable: boolean;
   blocker: string | null;
@@ -62,6 +65,46 @@ export interface Dashboard {
   lastChecked: string | number;
 }
 export type AccessSnapshot = Pick<Dashboard, "shizuku" | "axmanager" | "access">;
+export interface BootstrapSnapshot {
+  mode: Dashboard["mode"];
+  platformSupported: boolean;
+  uidAvailable: boolean;
+  device: { game: Dashboard["game"]; accessMethod: Dashboard["access"]["method"] };
+}
+export type InspectionSnapshot = Pick<Dashboard,
+  "storageWritable" | "blocker" | "game" | "resource" | "shizuku" | "axmanager" | "access" | "patch" | "uid" | "lastChecked"
+> & { inspection: Exclude<LoadStatus, "loading"> };
+export type OperationResult =
+  | { kind: "access"; snapshot: AccessSnapshot }
+  | { kind: "inspection"; snapshot: InspectionSnapshot; release: ReleaseInfo | null };
+
+export function loadCheck(status: LoadStatus = "not_checked", error: string | null = null): LoadCheck {
+  return { status, error };
+}
+
+export function checkLabel(check: LoadCheck): string {
+  switch (check.status) {
+    case "loading": return "Memeriksa…";
+    case "error": return "Gagal diperiksa";
+    case "not_checked": return "Belum diperiksa";
+    case "ready": return "Selesai";
+  }
+}
+
+export function initialDashboard(mode: Dashboard["mode"]): Dashboard {
+  return {
+    mode, checks: { bootstrap: loadCheck(), access: loadCheck(), release: loadCheck(), storage: loadCheck() },
+    platformSupported: false, storageWritable: false, blocker: null, release: null, uidAvailable: false,
+    game: { installed: false, version: "", packageName: "" },
+    resource: { ready: false, version: "" },
+    shizuku: { installed: false, running: false, granted: false },
+    axmanager: { installed: false, supported: false, running: false, version: "" },
+    access: { method: "axmanager", granted: false },
+    patch: { installed: false, healthy: false, recoveryPending: false, legacyPending: false, version: "" },
+    uid: { original: "", custom: null }, lastChecked: 0,
+  };
+}
+
 export const ACCESS_LABELS = { shizuku: "Shizuku", root: "Root", axmanager: "AxManager" } as const;
 
 export interface Progress {
@@ -129,6 +172,9 @@ export function compatibleGameVersion(d: Dashboard, version: string): boolean {
 export function installationPrerequisites(d: Dashboard): boolean {
   return (
     d.platformSupported &&
+    d.checks.bootstrap.status === "ready" &&
+    d.checks.storage.status === "ready" &&
+    d.checks.release.status === "ready" &&
     !d.blocker &&
     d.storageWritable &&
     d.game.installed &&
@@ -139,8 +185,12 @@ export function installationPrerequisites(d: Dashboard): boolean {
   );
 }
 export function accessReadiness(d: Dashboard): { ready: boolean; label: string; detail: string } {
+  if (d.checks.bootstrap.status !== "ready")
+    return { ready: false, label: checkLabel(d.checks.bootstrap), detail: d.checks.bootstrap.error ?? "Memuat informasi perangkat." };
   if (!d.platformSupported)
     return { ready: false, label: "Perlu Android", detail: "Akses file game hanya tersedia di Android." };
+  if (d.checks.access.status !== "ready")
+    return { ready: false, label: checkLabel(d.checks.access), detail: d.checks.access.error ?? "Status akses belum tersedia." };
   if (d.access.method === "axmanager") {
     if (!d.axmanager.installed)
       return { ready: false, label: "AxManager belum ditemukan", detail: "Pasang AxManager 3.0.0+." };
@@ -166,6 +216,8 @@ export function readiness(d: Dashboard): {
   label: string;
   detail: string;
 } {
+  if (d.checks.bootstrap.status !== "ready")
+    return { ready: false, label: checkLabel(d.checks.bootstrap), detail: d.checks.bootstrap.error ?? "Memuat informasi perangkat." };
   if (!d.platformSupported)
     return {
       ready: false,
@@ -182,12 +234,16 @@ export function readiness(d: Dashboard): {
     };
   const access = accessReadiness(d);
   if (!access.ready) return access;
+  if (d.checks.storage.status !== "ready")
+    return { ready: false, label: `Resource: ${checkLabel(d.checks.storage).toLowerCase()}`, detail: d.checks.storage.error ?? "Pilih Periksa resource untuk memuat status patch." };
   if (d.resource.ready && (d.patch.legacyPending || d.patch.recoveryPending))
     return {
       ready: false,
       label: d.patch.recoveryPending ? "Perlu pemulihan" : "Pemasangan versi lama",
       detail: d.patch.message ?? "Buka Perawatan untuk migrasi atau pemulihan tanpa unduhan.",
     };
+  if (d.checks.release.status !== "ready")
+    return { ready: false, label: `Rilis: ${checkLabel(d.checks.release).toLowerCase()}`, detail: d.checks.release.error ?? "Metadata rilis dimuat terpisah." };
   if (
     d.mode === "native" &&
     d.access.granted &&

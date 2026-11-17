@@ -74,15 +74,26 @@ Output berada di `src-tauri/gen/android/app/build/outputs/apk/`. CI membangun AR
 
 1. Pasang Global (`com.kurogame.wutheringwaves.global`) atau Galaxy Store (`com.kurogame.wutheringwaves.samsung`); selesaikan resource game dan paket bahasa Inggris.
 2. Buka kartu **Akses game** di Beranda. Shizuku menampilkan Unduh/Buka serta Izinkan langsung di kartu; permintaan izin hanya aktif setelah layanan terdeteksi. Server Shizuku tetap memerlukan API 12+. Root hanya untuk perangkat yang sudah di-root: aplikasi tidak melakukan root dan meminta `su` hanya melalui **Izinkan root**, bukan saat membuka aplikasi/refresh. Untuk AxManager, ikuti [setup berikut](#akses-axmanager).
-3. Pilih **Pasang terjemahan**. Game dihentikan sebelum perubahan berkas. Pilihan akses disimpan; Root/AxManager memerlukan koneksi ulang secara eksplisit setelah aplikasi/service dimulai ulang. Izin yang tersimpan bukan bukti sesi aktif. Tidak ada fallback otomatis atau pergantian metode selama operasi.
+3. Pilih **Periksa resource** bila belum diperiksa, lalu **Pasang terjemahan**. Game dihentikan sebelum perubahan berkas. Pilihan akses disimpan; Root/AxManager memerlukan koneksi ulang secara eksplisit setelah aplikasi/service dimulai ulang. Izin yang tersimpan bukan bukti sesi aktif. Tidak ada fallback otomatis atau pergantian metode selama operasi.
 
 Setelah membuka pengaturan/manager dari WuwaIDMobile, kembali ke aplikasi memicu pemeriksaan status pasif sekali. Jika operasi atau updater sedang aktif, pemeriksaan ditunda sampai selesai; tidak ada permintaan izin, reconnect, atau pemilihan metode otomatis. **Periksa akses** tetap tersedia untuk pemeriksaan manual. Setup memakai pesan menunggu tanpa persentase; persentase hanya muncul ketika operasi berkas mengirim progres nyata.
 
-Pemeriksaan otomatis memakai `wuwa_access_status`: hanya membaca paket, Binder, dan izin yang tersedia; tidak memulai service ataupun memindai berkas game. Jika izin Shizuku sudah ada tetapi service storage belum tersambung, kartu menawarkan **Hubungkan Shizuku**, bukan meminta izin lagi. **Periksa akses** manual memuat dashboard/resource penuh; pemasangan tetap memeriksa izin dan storage kembali.
+Pemeriksaan otomatis memakai `wuwa_access_status`: hanya membaca paket, Binder, dan izin yang tersedia; tidak memulai service ataupun memindai berkas game. Jika izin Shizuku sudah ada tetapi service storage belum tersambung, kartu menawarkan **Hubungkan Shizuku**, bukan meminta izin lagi. **Periksa akses** manual memeriksa resource/patch penuh saat status akses sudah diketahui; bila status akses gagal, tombol mengulangi pemeriksaan pasif.
 
 Jika kedua paket terpasang, pilih resource Global yang siap, lalu Galaxy Store, lalu paket terpasang pertama. Paket aktif dibekukan selama sesi.
 
 Upgrade versi sebelum Tauri memakai APK release dengan package/key yang sama; jangan uninstall atau hapus data. APK debug bukan jalur upgrade. Setelah upgrade, pilih metode akses dan **Perawatan → Migrasikan**. Migrasi offline mensyaratkan SHA-256/ukuran PAK cocok katalog rilis historis, signature tidak kosong, dan descriptor lama cocok persis dengan PAK/signature. Sumber lama dipertahankan sampai set baru terverifikasi; berkas ambigu/tidak dikenal memblokir mutasi. Setelah migrasi, pasang PAK stabil yang sesuai lini game/resource dan terapkan UID setelah status sehat.
+
+### Pemuatan bertahap
+
+- Shell dan navigasi tampil sebelum IPC selesai. `wuwa_bootstrap` hanya membaca metadata paket game dan pilihan akses tersimpan; tanpa Binder manager, shell, atau berkas game.
+- `wuwa_release` mengambil rilis PAK secara independen. Kegagalan jaringan tidak menahan status akses atau pemeriksaan storage; **Periksa rilis** mengulanginya.
+- Setelah bootstrap, `wuwa_access_status` memeriksa akses secara pasif di latar belakang. Tidak meminta izin, mengikat service baru, atau mencari root otomatis.
+- `wuwa_inspect` memindai resource, kepemilikan patch, dan UID hanya saat **Periksa resource/akses**, membuka Kustomisasi/Perawatan dengan akses tersedia, atau setelah koneksi/izin diminta secara eksplisit. Tidak mengambil rilis jaringan. Beranda tidak memulai pemindaian otomatis.
+- Setiap tahap memiliki status `not_checked`, `loading`, `ready`, atau `error`. Belum diperiksa/gagal bukan bukti game, izin, resource, atau patch tidak ada. Mutasi terkunci sampai prasyaratnya terverifikasi.
+- Pemilihan metode dan buka game hanya memperbarui status akses. Hasil rilis tidak menimpa hasil inspeksi, dan perubahan metode/kehilangan akses membatalkan status storage lama. Tidak ada retry penuh otomatis setelah kegagalan.
+- Permintaan inspeksi dari perpindahan halaman digabungkan; hasil inspeksi yang sudah selesai tidak dipindai ulang oleh antrean navigasi lama. Status gagal tidak menampilkan centang siap atau UID aktif dari hasil lama. Waktu **Diperiksa** hanya berubah setelah respons inspeksi storage, bukan pemeriksaan akses pasif.
+- Installer tetap memeriksa izin, storage, kepemilikan, dan transaksi kembali pada setiap operasi. Pemulihan/migrasi offline dan hapus patch terverifikasi tidak bergantung pada keberhasilan pemeriksaan rilis.
 
 ### Berkas dan batas keselamatan
 
