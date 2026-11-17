@@ -20,6 +20,13 @@ impl<R: Runtime> MobileBridge<R> {
         self.invoke("probe", json!({ "requestId": crate::trace::request_id() }))
     }
 
+    pub fn access_status(&self) -> PakResult<crate::native::AccessSnapshot> {
+        self.invoke(
+            "probe",
+            json!({ "requestId": crate::trace::request_id(), "accessOnly": true }),
+        )
+    }
+
     pub fn control(&self, action: &str) -> PakResult<()> {
         if !matches!(
             action,

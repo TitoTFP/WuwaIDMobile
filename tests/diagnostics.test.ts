@@ -7,7 +7,7 @@ function dashboard(): Dashboard {
   return {
     mode: "mock", platformSupported: true, storageWritable: true, blocker: null, release: null,
     uidAvailable: true, game: { installed: true, version: "3.7.0", packageName: "game.fixture" },
-    resource: { ready: true, version: "3.7.0" }, shizuku: { running: true, granted: true },
+    resource: { ready: true, version: "3.7.0" }, shizuku: { installed: true, running: true, granted: true },
     axmanager: { installed: false, supported: false, running: false, version: "" },
     access: { method: "shizuku", granted: true },
     patch: { installed: true, healthy: true, recoveryPending: false, legacyPending: false, version: "fixture" },

@@ -4,7 +4,7 @@ use std::sync::{
 };
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 #[cfg(target_os = "android")]
 use tauri::Emitter;
 use tauri::{AppHandle, Manager};
@@ -70,16 +70,24 @@ struct Resource {
     ready: bool,
     version: String,
 }
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 struct Shizuku {
+    installed: bool,
     running: bool,
     granted: bool,
 }
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 struct Access {
     method: String,
     granted: bool,
 }
+#[derive(Deserialize, Serialize)]
+pub struct AccessSnapshot {
+    shizuku: Shizuku,
+    axmanager: AxManagerStatus,
+    access: Access,
+}
+
 #[derive(Serialize)]
 struct Uid {
     original: &'static str,
@@ -209,7 +217,7 @@ fn load_dashboard(
             release: selected_release, uid_available: false,
             game: Game { installed: false, version: String::new(), package_name: GAME_PACKAGE.into() },
             resource: Resource { ready: false, version: String::new() },
-            shizuku: Shizuku { running: false, granted: false }, patch: empty_status(),
+            shizuku: Shizuku { installed: false, running: false, granted: false }, patch: empty_status(),
             axmanager: AxManagerStatus::default(),
             access: Access { method: "shizuku".into(), granted: false },
             uid: Uid { original: "", custom: None }, last_checked: timestamp(),
@@ -267,6 +275,7 @@ fn load_dashboard(
             },
             resource,
             shizuku: Shizuku {
+                installed: probe.shizuku_installed,
                 running: probe.shizuku_running,
                 granted: probe.shizuku_granted,
             },
@@ -311,6 +320,27 @@ pub async fn wuwa_load(app: AppHandle, request_id: u64) -> PakResult<Dashboard> 
         let _request = Request::enter(request_id);
         let _load = Span::new("dashboard.load");
         load_dashboard(&app, true, None)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn wuwa_access_status(app: AppHandle, request_id: u64) -> PakResult<AccessSnapshot> {
+    let guard = BusyGuard::acquire(Arc::clone(app.state::<Arc<NativeState>>().inner()))?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = guard;
+        let _request = Request::enter(request_id);
+        let _status = Span::new("access.status");
+        #[cfg(target_os = "android")]
+        {
+            bridge(&app).access_status()
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            let _ = app;
+            Err("Status akses hanya tersedia di Android.".into())
+        }
     })
     .await
     .map_err(|e| e.to_string())?
@@ -450,6 +480,7 @@ mod access_tests {
             game_installed: true,
             game_version: "3.7.0".into(),
             game_package: crate::pak::model::GAME_PACKAGE.into(),
+            shizuku_installed: false,
             shizuku_running: false,
             shizuku_granted: false,
             axmanager: AxManagerStatus::default(),

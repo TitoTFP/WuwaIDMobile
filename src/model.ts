@@ -5,6 +5,7 @@ export type Scenario =
   | "game_missing"
   | "unsupported"
   | "resource_missing"
+  | "shizuku_missing"
   | "shizuku_off"
   | "permission"
   | "root_permission"
@@ -46,7 +47,7 @@ export interface Dashboard {
   uidAvailable: boolean;
   game: { installed: boolean; version: string; packageName: string };
   resource: { ready: boolean; version: string };
-  shizuku: { running: boolean; granted: boolean };
+  shizuku: { installed: boolean; running: boolean; granted: boolean };
   axmanager: { installed: boolean; supported: boolean; running: boolean; version: string };
   access: { method: "shizuku" | "root" | "axmanager"; granted: boolean };
   patch: {
@@ -60,6 +61,7 @@ export interface Dashboard {
   uid: { original: string; custom: string | null };
   lastChecked: string | number;
 }
+export type AccessSnapshot = Pick<Dashboard, "shizuku" | "axmanager" | "access">;
 export const ACCESS_LABELS = { shizuku: "Shizuku", root: "Root", axmanager: "AxManager" } as const;
 
 export interface Progress {
@@ -131,12 +133,34 @@ export function installationPrerequisites(d: Dashboard): boolean {
     d.storageWritable &&
     d.game.installed &&
     compatibleGameVersion(d, d.game.version) &&
-    d.access.granted &&
-    (d.access.method !== "axmanager" || (d.axmanager.installed && d.axmanager.supported && d.axmanager.running)) &&
+    accessReadiness(d).ready &&
     d.resource.ready &&
     compatibleGameVersion(d, d.resource.version)
   );
 }
+export function accessReadiness(d: Dashboard): { ready: boolean; label: string; detail: string } {
+  if (!d.platformSupported)
+    return { ready: false, label: "Perlu Android", detail: "Akses file game hanya tersedia di Android." };
+  if (d.access.method === "axmanager") {
+    if (!d.axmanager.installed)
+      return { ready: false, label: "AxManager belum ditemukan", detail: "Pasang AxManager 3.0.0+ melalui Atur akses game." };
+    if (!d.axmanager.supported)
+      return { ready: false, label: "AxManager belum didukung", detail: "Perlu Android 8+, profil utama perangkat, dan aplikasi serta server AxManager 3.0.0+." };
+    if (!d.access.granted || !d.axmanager.running)
+      return { ready: false, label: "AxManager belum terhubung", detail: "Aktifkan server di AxManager, lalu pilih Hubungkan pada Akses game. Izin yang tersimpan tidak berarti sesi sudah terhubung." };
+  } else if (d.access.method === "shizuku") {
+    if (!d.shizuku.installed)
+      return { ready: false, label: "Shizuku belum terpasang", detail: "Unduh Shizuku melalui Akses game, lalu aktifkan layanannya." };
+    if (!d.shizuku.running)
+      return { ready: false, label: "Shizuku belum aktif", detail: "Buka Shizuku dan aktifkan layanannya, lalu kembali ke sini." };
+    if (!d.access.granted)
+      return { ready: false, label: d.shizuku.granted ? "Shizuku belum terhubung" : "Izin Shizuku diperlukan", detail: "Pilih Hubungkan atau Izinkan Shizuku pada Akses game. Izin hanya diminta jika belum diberikan." };
+  } else if (!d.access.granted) {
+    return { ready: false, label: "Root belum terhubung", detail: "Pada perangkat yang sudah di-root, pilih Izinkan root pada Akses game. Metode lain tetap tersedia." };
+  }
+  return { ready: true, label: "Terhubung", detail: `Akses ${ACCESS_LABELS[d.access.method]} tersedia.` };
+}
+
 export function readiness(d: Dashboard): {
   ready: boolean;
   label: string;
@@ -156,40 +180,8 @@ export function readiness(d: Dashboard): {
       label: "Game belum ditemukan",
       detail: "Pasang versi Global atau Galaxy Store, lalu periksa ulang.",
     };
-  if (d.access.method === "axmanager" && (!d.axmanager.installed || !d.axmanager.supported))
-    return {
-      ready: false,
-      label: !d.axmanager.installed ? "AxManager belum tersedia" : "AxManager belum didukung",
-      detail: d.axmanager.installed
-        ? "Perlu Android 8+, user utama, dan AxManager 3.0.0+. Pilih akses lain di Perawatan."
-        : "Pasang AxManager 3.0.0+ atau periksa AX-Stealth, lalu hubungkan di Perawatan.",
-    };
-  if (d.access.method === "root" && !d.access.granted)
-    return {
-      ready: false,
-      label: "Izin root diperlukan",
-      detail: "Izinkan akses root, atau pilih AxManager/Shizuku di Perawatan.",
-    };
-  if (d.access.method === "shizuku" && !d.shizuku.running)
-    return {
-      ready: false,
-      label: "Shizuku belum aktif",
-      detail:
-        "Jalankan Shizuku untuk mengakses file game.",
-    };
-  if (!d.access.granted)
-    return {
-      ready: false,
-      label: "Izin diperlukan",
-      detail: d.access.method === "axmanager" ? "Hubungkan AxManager untuk melanjutkan."
-        : "Izinkan Shizuku untuk melanjutkan.",
-    };
-  if (d.access.method === "axmanager" && !d.axmanager.running)
-    return {
-      ready: false,
-      label: "Koneksi AxManager terputus",
-      detail: "Aktifkan server AxManager, lalu hubungkan ulang di Perawatan.",
-    };
+  const access = accessReadiness(d);
+  if (!access.ready) return access;
   if (d.resource.ready && (d.patch.legacyPending || d.patch.recoveryPending))
     return {
       ready: false,

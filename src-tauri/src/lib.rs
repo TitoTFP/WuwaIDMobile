@@ -12,6 +12,7 @@ pub fn run() {
         .manage(std::sync::Arc::new(native::NativeState::default()))
         .invoke_handler(tauri::generate_handler![
             native::wuwa_load,
+            native::wuwa_access_status,
             native::wuwa_run,
             native::wuwa_open_setup,
             diagnostics::wuwa_diagnostics,

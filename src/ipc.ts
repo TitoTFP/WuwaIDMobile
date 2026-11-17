@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { diagnosticHistory, exportInBrowser, serializeDiagnostics } from "./diagnostics";
 import type {
   AppUpdateStatus,
+  AccessSnapshot,
   Dashboard,
   Diagnostics,
   DiagnosticReport,
@@ -73,6 +74,7 @@ export const api = {
     if (requestId !== undefined) await uiTrace(requestId, "busy_end");
   },
   load: () => command<Dashboard>("wuwa_load"),
+  accessStatus: () => command<AccessSnapshot>("wuwa_access_status"),
   setScenario(scenario: Scenario) {
     if (native)
       return Promise.reject(

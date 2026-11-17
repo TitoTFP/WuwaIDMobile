@@ -66,6 +66,7 @@ pub struct DeviceProbe {
     pub game_installed: bool,
     pub game_version: String,
     pub game_package: String,
+    pub shizuku_installed: bool,
     pub shizuku_running: bool,
     pub shizuku_granted: bool,
     pub axmanager: AxManagerStatus,

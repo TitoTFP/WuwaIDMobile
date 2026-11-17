@@ -10,7 +10,7 @@ import {
   type Scenario,
 } from "./model";
 
-const STORAGE_KEY = "wuwaidmobile.mock-state.v6";
+const STORAGE_KEY = "wuwaidmobile.mock-state.v7";
 const GAME_VERSION = "3.7.0";
 const PACKAGE_NAME = "com.kurogame.wutheringwaves.global";
 
@@ -24,7 +24,7 @@ function seed(): Dashboard {
     uidAvailable: true,
     game: { installed: true, version: GAME_VERSION, packageName: PACKAGE_NAME },
     resource: { ready: true, version: GAME_VERSION },
-    shizuku: { running: false, granted: false },
+    shizuku: { installed: true, running: false, granted: false },
     axmanager: { installed: true, supported: true, running: true, version: "3.0.0" },
     access: { method: "axmanager", granted: true },
     patch: {
@@ -70,6 +70,7 @@ function validDashboard(value: unknown): value is Dashboard {
     typeof d.resource.ready === "boolean" &&
     typeof d.resource.version === "string" &&
     !!d.shizuku &&
+    typeof d.shizuku.installed === "boolean" &&
     typeof d.shizuku.running === "boolean" &&
     typeof d.shizuku.granted === "boolean" &&
     !!d.axmanager &&
@@ -164,6 +165,11 @@ function scenarioState(scenario: Scenario): Dashboard {
       break;
     case "resource_missing":
       next.resource.ready = false;
+      break;
+    case "shizuku_missing":
+      next.access.method = "shizuku";
+      next.shizuku = { installed: false, running: false, granted: false };
+      next.access.granted = false;
       break;
     case "shizuku_off":
       next.access.method = "shizuku";
@@ -364,6 +370,9 @@ mockIPC(async (command, args) => {
       dashboard = { ...dashboard, lastChecked: new Date().toISOString() };
       persist(dashboard);
       return clone(dashboard);
+    }
+    case "wuwa_access_status": {
+      return { shizuku: { ...dashboard.shizuku }, axmanager: { ...dashboard.axmanager }, access: { ...dashboard.access } };
     }
     case "wuwa_set_scenario": {
       if (busy) throw new Error("Operasi simulasi lain sedang berjalan.");

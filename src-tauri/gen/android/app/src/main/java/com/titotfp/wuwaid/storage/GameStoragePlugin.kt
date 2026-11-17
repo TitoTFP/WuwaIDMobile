@@ -55,6 +55,7 @@ class ControlArgs {
 @InvokeArg
 class ProbeArgs {
   var requestId: Long = 0
+  var accessOnly: Boolean = false
 }
 
 @TauriPlugin
@@ -142,7 +143,7 @@ class GameStoragePlugin(private val activity: Activity) : Plugin(activity) {
     val args = invoke.parseArgs(ProbeArgs::class.java)
     dispatch(invoke) {
       requestId = args.requestId
-      StorageTrace.phase(requestId, "probe") { probeDevice() }
+      StorageTrace.phase(requestId, "probe") { probeDevice(args.accessOnly) }
     }
   }
 
@@ -180,16 +181,14 @@ class GameStoragePlugin(private val activity: Activity) : Plugin(activity) {
         accessPreferences.edit().putString("method", accessMethod).apply()
         null
       }
-      "open_shizuku" -> runOnUi(invoke) { launchPackage(SHIZUKU_PACKAGE) }
+      "open_shizuku" -> runOnUi(invoke) {
+        activity.startActivity(managerSetupIntent(activity,
+          SHIZUKU_PACKAGE.takeIf { isPackageInstalled(activity, it) },
+          "https://shizuku.rikka.app/download/"))
+      }
       "open_axmanager" -> runOnUi(invoke) {
-        val manager = axManagerSession.managerPackage()
-        val intent = if (manager == null) {
-          Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/fahrez182/AxManager/releases"))
-        } else {
-          activity.packageManager.getLaunchIntentForPackage(manager)
-            ?: throw IllegalStateException("AxManager tidak dapat dibuka.")
-        }
-        activity.startActivity(intent)
+        activity.startActivity(managerSetupIntent(activity, axManagerSession.managerPackage(),
+          "https://github.com/fahrez182/AxManager/releases"))
       }
       "open_store" -> runOnUi(invoke) { openStore() }
       else -> invoke.reject("Unsupported app control action")
@@ -329,11 +328,7 @@ class GameStoragePlugin(private val activity: Activity) : Plugin(activity) {
     }
   }
 
-  private fun probeDevice(): Map<String, Any?> {
-    val installed = GamePackages.supported.mapNotNull { packageName ->
-      installedGameVersion(packageName)?.let { packageName to it }
-    }.toMap()
-    var gamePackage = selectedGamePackage ?: installed.keys.firstOrNull() ?: GAME_PACKAGE
+  private fun probeDevice(accessOnly: Boolean = false): Map<String, Any?> {
     val shizukuRunning = try {
       Shizuku.pingBinder()
     } catch (_: Exception) {
@@ -349,9 +344,6 @@ class GameStoragePlugin(private val activity: Activity) : Plugin(activity) {
       false
     }
 
-    var rootReadable = false
-    var rootWritable = false
-    var storageError: String? = null
     val axmanager = axManagerSession.status(checkServer = accessMethod == "axmanager")
     val accessGranted = when (accessMethod) {
       "root" -> rootSession.granted()
@@ -359,6 +351,24 @@ class GameStoragePlugin(private val activity: Activity) : Plugin(activity) {
       "axmanager" -> axmanager["supported"] == true && axmanager["running"] == true && axManagerSession.granted()
       else -> false
     }
+    val shizukuInstalled = isPackageInstalled(activity, SHIZUKU_PACKAGE)
+    if (accessOnly) {
+      // Never bind a service or inspect game files while returning from manager setup.
+      val connected = accessGranted && (accessMethod != "shizuku" ||
+        userService?.asBinder()?.isBinderAlive == true)
+      return mapOf(
+        "shizuku" to mapOf("installed" to shizukuInstalled, "running" to shizukuRunning, "granted" to shizukuGranted),
+        "axmanager" to axmanager,
+        "access" to mapOf("method" to accessMethod, "granted" to connected)
+      )
+    }
+    val installed = GamePackages.supported.mapNotNull { packageName ->
+      installedGameVersion(packageName)?.let { packageName to it }
+    }.toMap()
+    var gamePackage = selectedGamePackage ?: installed.keys.firstOrNull() ?: GAME_PACKAGE
+    var rootReadable = false
+    var rootWritable = false
+    var storageError: String? = null
     if (accessGranted) {
       try {
         if (installed.isNotEmpty()) {
@@ -380,6 +390,7 @@ class GameStoragePlugin(private val activity: Activity) : Plugin(activity) {
       "gameInstalled" to installed.containsKey(gamePackage),
       "gameVersion" to (installed[gamePackage] ?: ""),
       "gamePackage" to gamePackage,
+      "shizukuInstalled" to shizukuInstalled,
       "shizukuRunning" to shizukuRunning,
       "shizukuGranted" to shizukuGranted,
       "axmanager" to axmanager,

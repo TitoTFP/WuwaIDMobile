@@ -6,13 +6,14 @@ import {
   CONTENT_VERSION,
   UID_MAX_LENGTH,
   compatibleGameVersion,
+  accessReadiness,
   readiness,
   type Operation,
   type Scenario,
   type Section,
   type UiState,
 } from "./model";
-import { renderCustomize, renderTools } from "./panels";
+import { renderAccess, renderCustomize, renderProgress, renderTools } from "./panels";
 import { escapeHtml as esc, icon } from "./ui";
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
@@ -28,6 +29,46 @@ reducedMotion.addEventListener("change", () => {
 });
 let error = "";
 let toastTimer: number;
+let busyLabel = "";
+let fileProgress = false;
+let setupArmed = false;
+let setupLeft = false;
+let setupRefreshPending = false;
+
+function markSetupLeave() {
+  if (setupArmed) setupLeft = true;
+}
+
+function markSetupReturn() {
+  if (document.visibilityState === "hidden") return;
+  if (setupArmed && setupLeft) {
+    setupArmed = false;
+    setupRefreshPending = true;
+  }
+  void refreshSetupReturn();
+}
+
+async function refreshSetupReturn() {
+  if (!state || !setupRefreshPending || state.busy || appUpdateBusy() ||
+    document.visibilityState === "hidden") return;
+  setupRefreshPending = false;
+  await execute(async () => {
+    const snapshot = await api.accessStatus();
+    state.dashboard = {
+      ...state.dashboard, ...snapshot,
+      storageWritable: state.dashboard.storageWritable && snapshot.access.granted,
+      lastChecked: Date.now(),
+    };
+    notify("Status akses diperbarui.");
+  }, "Memeriksa akses setelah kembali…", { reloadOnError: false });
+}
+
+window.addEventListener("blur", markSetupLeave);
+window.addEventListener("focus", markSetupReturn);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") markSetupLeave();
+  else markSetupReturn();
+});
 const navigation: { id: Section; label: string }[] = [
   { id: "home", label: "Beranda" },
   { id: "customize", label: "Kustomisasi" },
@@ -72,9 +113,10 @@ function notify(message: string) {
   }, 5500);
 }
 
-function renderHome() {
+function renderHome(panelState: UiState) {
   const d = state.dashboard;
   const ready = readiness(d);
+  const access = accessReadiness(d);
   const disabled = state.busy || appUpdateBusy() || !d.platformSupported ? "disabled" : "";
   let primary: { action: string; label: string } = {
     action: "install",
@@ -84,16 +126,8 @@ function renderHome() {
     primary = { action: "refresh", label: "Perlu Android" };
   else if (!d.game.installed)
     primary = { action: "setup-game", label: "Pasang game" };
-  else if (d.access.method === "root" && !d.access.granted)
-    primary = { action: "request_root", label: "Izinkan root" };
-  else if (d.access.method === "shizuku" && !d.shizuku.running)
-    primary = { action: "setup-shizuku", label: "Buka Shizuku" };
-  else if (d.access.method === "axmanager" && (!d.axmanager.installed || !d.axmanager.supported))
-    primary = { action: "setup-axmanager", label: d.axmanager.installed ? "Buka AxManager" : "Unduh AxManager" };
-  else if (d.access.method === "axmanager" && !d.access.granted)
-    primary = { action: "request_axmanager", label: "Hubungkan AxManager" };
-  else if (!d.access.granted)
-    primary = { action: "request_permission", label: "Izinkan Shizuku" };
+  else if (!access.ready)
+    primary = { action: "access-setup", label: "Atur akses game" };
   else if (d.patch.legacyPending || d.patch.recoveryPending)
     primary = { action: "tools", label: "Buka Perawatan" };
   else if (d.mode === "native" && !d.release)
@@ -127,17 +161,8 @@ function renderHome() {
     },
     {
       name: ACCESS_LABELS[d.access.method],
-      value: !d.platformSupported
-        ? "Perlu Android"
-        : d.access.granted
-          ? "Terhubung"
-          : d.access.method === "root"
-            ? "Perlu izin"
-            : d.access.method === "axmanager"
-              ? (!d.axmanager.installed ? "Tidak tersedia / AX-Stealth" : !d.axmanager.supported ? "Belum didukung"
-                : "Perlu koneksi")
-              : d.shizuku.running ? "Perlu izin" : "Belum aktif",
-      ok: d.access.granted,
+      value: access.label,
+      ok: access.ready,
       icon: "shield",
     },
     {
@@ -176,8 +201,9 @@ function renderHome() {
       <section class="card device-card" aria-labelledby="device-title">
         <div class="card-header"><h2 id="device-title">Perangkat</h2><button class="icon-btn" data-action="refresh" aria-label="Periksa perangkat" title="Periksa perangkat" ${state.busy || appUpdateBusy() ? "disabled" : ""}>${icon("refresh")}</button></div>
         <div class="device-list">${deviceRows.map((row) => `<div class="device-row"><span class="device-icon">${icon(row.icon)}</span><div><strong>${row.name}</strong><p>${esc(row.value)}</p></div><span class="device-check ${row.ok ? "" : "pending"}" aria-label="${row.ok ? "Siap" : "Perlu perhatian"}">${icon(row.ok ? "check" : "info")}</span></div>`).join("")}</div>
+        ${d.platformSupported ? `<button class="text-button" data-action="access-setup" ${panelState.busy ? "disabled" : ""}>Atur akses game ${icon("arrow")}</button>` : ""}
       </section>
-    </div>`;
+    </div>${renderAccess(panelState)}`;
 }
 
 function render() {
@@ -202,8 +228,8 @@ function render() {
   const panelState = appUpdateBusy() ? { ...state, busy: true } : state;
   content.innerHTML = `
     ${error ? `<div class="error-banner" role="alert">${icon("info")}<span>${esc(error)}</span><button class="icon-btn" data-action="dismiss-error" aria-label="Tutup pesan">${icon("close")}</button></div>` : ""}
-    ${state.busy ? `<div class="progress-card" role="status" aria-live="polite"><div><strong>${esc(state.progress?.label ?? "Menyiapkan…")}</strong><span>${state.progress?.percent ?? 0}%</span></div><div class="progress-track" role="progressbar" aria-label="Progres pemasangan" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${state.progress?.percent ?? 0}"><span class="progress-fill" style="transform: scaleX(${(state.progress?.percent ?? 0) / 100})"></span></div></div>` : ""}
-    ${section === "home" ? renderHome() : section === "customize" ? renderCustomize(panelState) : renderTools(panelState)}
+    ${state.busy ? renderProgress(busyLabel, fileProgress ? state.progress : null) : ""}
+    ${section === "home" ? renderHome(panelState) : section === "customize" ? renderCustomize(panelState) : renderTools(panelState)}
     ${renderAppUpdate(state.busy, section === "tools")}`;
   if (renderedSection !== section) {
     content.getAnimations().forEach((animation) => animation.cancel());
@@ -229,11 +255,14 @@ function render() {
   }
 }
 
-async function execute(work: () => Promise<void>) {
+async function execute(work: () => Promise<void>, label = "Memeriksa status…",
+  options: { fileProgress?: boolean; reloadOnError?: boolean } = {}) {
   if (state.busy || appUpdateBusy()) return;
   const busyTrace = api.beginBusy();
   state.busy = true;
   state.progress = null;
+  busyLabel = label;
+  fileProgress = options.fileProgress ?? false;
   error = "";
   render();
   try {
@@ -242,7 +271,7 @@ async function execute(work: () => Promise<void>) {
   } catch (cause) {
     error = cause instanceof Error ? cause.message : String(cause);
     notify(error);
-    if (state.dashboard.mode === "native") {
+    if (state.dashboard.mode === "native" && options.reloadOnError !== false) {
       try {
         state.dashboard = await api.load();
       } catch (refreshError) {
@@ -250,14 +279,32 @@ async function execute(work: () => Promise<void>) {
       }
     }
   } finally {
-    state.busy = false;
-    state.progress = null;
-    render();
-    await api.endBusy();
+    try {
+      await api.endBusy();
+    } finally {
+      state.busy = false;
+      state.progress = null;
+      render();
+      void refreshSetupReturn();
+    }
   }
 }
 
 async function operate(operation: Operation, uidText?: string) {
+  const labels: Record<Operation, string> = {
+    install: "Menyiapkan pemasangan…",
+    repair: "Menyiapkan pemulihan…",
+    uninstall: "Menyiapkan penghapusan…",
+    apply_uid: "Menyiapkan UID kustom…",
+    restore_uid: "Memulihkan UID bawaan…",
+    launch_game: "Membuka game…",
+    request_permission: "Menunggu izin Shizuku…",
+    request_root: "Menunggu izin root dan menghubungkan akses…",
+    request_axmanager: "Menghubungkan AxManager; setujui izin jika diminta…",
+    use_root: "Memilih Root…",
+    use_shizuku: "Memilih Shizuku…",
+    use_axmanager: "Memilih AxManager…",
+  };
   await execute(async () => {
     state.dashboard = await api.run(operation, uidText);
     if (
@@ -287,7 +334,7 @@ async function operate(operation: Operation, uidText?: string) {
       use_axmanager: "AxManager dipilih. Hubungkan akses untuk melanjutkan.",
     };
     notify(messages[operation]);
-  });
+  }, labels[operation], { fileProgress: ["install", "repair", "uninstall", "apply_uid", "restore_uid"].includes(operation) });
 }
 
 app.addEventListener("click", async (event) => {
@@ -315,10 +362,17 @@ app.addEventListener("click", async (event) => {
     return;
   }
   const action = button.dataset.action;
-  if (await handleAppUpdate(action, state.busy)) return;
+  if (await handleAppUpdate(action, state.busy)) {
+    void refreshSetupReturn();
+    return;
+  }
   if (action === "dismiss-error") {
     error = "";
     render();
+  } else if (action === "access-setup") {
+    const setup = app.querySelector<HTMLElement>("#access-setup");
+    setup?.scrollIntoView({ behavior: reducedMotion.matches ? "instant" : "smooth", block: "start" });
+    setup?.focus({ preventScroll: true });
   } else if (action === "tools") {
     section = "tools";
     render();
@@ -335,19 +389,25 @@ app.addEventListener("click", async (event) => {
       const message = diagnosticExportMessage(result);
       if (result.status === "failed") throw new Error(message);
       notify(message);
-    });
+    }, "Menyiapkan laporan diagnostik…");
   else if (action === "setup-game" || action === "setup-shizuku" || action === "setup-axmanager") {
     if (state.dashboard.mode === "native") {
       await execute(async () => {
-        await api.openSetup(action === "setup-game" ? "game" : action === "setup-axmanager" ? "axmanager" : "shizuku");
-        notify(
-          "Selesaikan pengaturan, lalu periksa ulang.",
-        );
-      });
+        setupArmed = true;
+        setupLeft = false;
+        try {
+          await api.openSetup(action === "setup-game" ? "game" : action === "setup-axmanager" ? "axmanager" : "shizuku");
+        } catch (cause) {
+          setupArmed = false;
+          setupRefreshPending = false;
+          throw cause;
+        }
+        notify("Selesaikan pengaturan. Status diperiksa saat kembali ke aplikasi.");
+      }, "Membuka pengaturan…", { reloadOnError: false });
     } else {
       section = "tools";
       render();
-      notify('Pilih skenario "Semua siap".');
+      notify("Simulasi tidak membuka aplikasi lain. Pilih kondisi layanan melalui Skenario simulasi.");
     }
   } else if (
     action &&
@@ -401,17 +461,11 @@ document
   });
 
 api.subscribeProgress((progress) => {
-  if (state?.busy) {
+  if (state?.busy && fileProgress) {
     state.progress = progress;
     // Progress must not replace navigation, theme controls, or focused inputs.
     const card = app.querySelector<HTMLElement>(".progress-card");
-    if (card) {
-      card.querySelector("strong")!.textContent = progress.label;
-      card.querySelector("div > span")!.textContent = `${progress.percent}%`;
-      const track = card.querySelector<HTMLElement>(".progress-track")!;
-      track.setAttribute("aria-valuenow", String(progress.percent));
-      track.querySelector<HTMLElement>(".progress-fill")!.style.transform = `scaleX(${progress.percent / 100})`;
-    }
+    if (card) card.outerHTML = renderProgress(busyLabel, progress);
   }
 });
 
@@ -425,7 +479,7 @@ async function start() {
       uidDraft: dashboard.uid.custom ?? "",
     };
     render();
-    void initAppUpdates(render);
+    void initAppUpdates(() => { render(); void refreshSetupReturn(); });
   } catch (cause) {
     app.innerHTML = `<main class="startup-error"><h1>Gagal memuat</h1><p>${esc(String(cause))}</p><button class="btn btn-primary" id="retry-start">Coba lagi</button></main>`;
     document.querySelector("#retry-start")!.addEventListener("click", start);

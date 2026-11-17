@@ -224,6 +224,7 @@ mod tests {
             game_installed: true,
             game_version: "3.7.0".into(),
             game_package: crate::pak::model::GAME_PACKAGE.into(),
+            shizuku_installed: false,
             shizuku_running: false,
             shizuku_granted: false,
             axmanager: crate::pak::model::AxManagerStatus::default(),

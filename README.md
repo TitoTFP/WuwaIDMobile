@@ -35,10 +35,11 @@ Siapkan **Android ARM64** dan **Wuthering Waves Global atau Galaxy Store**. **Ax
 | Root | Alternatif untuk perangkat rooted; izin diminta secara eksplisit dari pengelola root. |
 
 1. Buka game dan selesaikan unduhan resource, termasuk paket bahasa Inggris.
-2. Buka WuwaID Mobile. Jika AxManager belum terpasang, pilih **Unduh AxManager**, lalu ikuti [pengaturan akses](docs/android.md#akses-axmanager). Untuk mengganti metode, buka **Perawatan**.
+2. Pilih **Atur akses game** di Beranda atau gunakan kartu **Akses game** di Perawatan. Pilih metode, unduh/buka manager bila diperlukan, lalu hubungkan atau berikan izin langsung di kartu tersebut. Lihat [pengaturan AxManager](docs/android.md#akses-axmanager).
 3. Kembali ke **Beranda** dan pilih **Pasang terjemahan**.
 
 Metode akses tidak berpindah otomatis saat izin ditolak atau koneksi putus. AxManager memerlukan **Hubungkan** ulang setiap aplikasi dibuka atau server dimulai ulang. Pengguna lama tanpa pilihan tersimpan tetap memakai Shizuku saat upgrade.
+Setelah membuka manager dari aplikasi, status diperiksa otomatis saat kembali, setelah operasi aktif selesai. Pemeriksaan tidak meminta izin, menghubungkan ulang, atau mengganti metode. Root hanya untuk perangkat yang sudah di-root; WuwaIDMobile tidak melakukan root.
 
 **Sudah memakai versi lama?** Jangan uninstall atau hapus data untuk upgrade. Ikuti [panduan upgrade](docs/android.md#release-dan-upgrade); APK debug bukan pengganti APK rilis.
 
