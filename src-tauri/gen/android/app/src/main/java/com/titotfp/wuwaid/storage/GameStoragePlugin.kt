@@ -67,7 +67,7 @@ class GameStoragePlugin(private val activity: Activity) : Plugin(activity) {
   private val rootSession = RootSession(activity)
   private val axManagerSession = AxManagerSession(activity)
   private val accessPreferences = activity.getSharedPreferences("storage-access", Activity.MODE_PRIVATE)
-  private var accessMethod = accessPreferences.getString("method", "shizuku") ?: "shizuku"
+  private var accessMethod = loadStorageAccess(activity, accessPreferences)
   @Volatile private var selectedGamePackage: String? = null
   @Volatile private var userService: IStorageUserService? = null
   private var serviceBinding = false
@@ -183,9 +183,12 @@ class GameStoragePlugin(private val activity: Activity) : Plugin(activity) {
       "open_shizuku" -> runOnUi(invoke) { launchPackage(SHIZUKU_PACKAGE) }
       "open_axmanager" -> runOnUi(invoke) {
         val manager = axManagerSession.managerPackage()
-          ?: throw IllegalStateException("AxManager tidak ditemukan. Periksa pemasangan dan AX-Stealth.")
-        val intent = activity.packageManager.getLaunchIntentForPackage(manager)
-          ?: throw IllegalStateException("AxManager tidak dapat dibuka.")
+        val intent = if (manager == null) {
+          Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/fahrez182/AxManager/releases"))
+        } else {
+          activity.packageManager.getLaunchIntentForPackage(manager)
+            ?: throw IllegalStateException("AxManager tidak dapat dibuka.")
+        }
         activity.startActivity(intent)
       }
       "open_store" -> runOnUi(invoke) { openStore() }

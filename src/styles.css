@@ -161,6 +161,7 @@ svg, .icon { flex-shrink: 0; }
 .maintenance-grid > :only-child { grid-column: 1 / -1; }
 .access-methods { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px; background: var(--surface-soft); border-radius: 12px; }
 .access-methods button { flex: 1; padding: 10px; min-height: 44px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--muted); font-size: 12px; }
+.access-methods small { display: block; margin-top: 3px; font-size: 10px; font-weight: 400; }
 .access-methods button[aria-pressed="true"] { background: var(--surface); color: var(--accent-text); border-color: var(--border); opacity: 1; font-weight: 600; }
 .access-methods button:hover:not(:disabled) { color: var(--text); }
 .access-methods button[aria-pressed="true"]:disabled { cursor: default; }

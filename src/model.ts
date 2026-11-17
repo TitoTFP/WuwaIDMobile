@@ -9,6 +9,7 @@ export type Scenario =
   | "permission"
   | "root_permission"
   | "root_ready"
+  | "axmanager_missing"
   | "axmanager_off"
   | "axmanager_permission"
   | "axmanager_ready"
@@ -147,7 +148,7 @@ export function readiness(d: Dashboard): {
       label: "Perlu Android",
       detail:
         d.blocker ??
-        "Gunakan Android dengan Shizuku, Root, atau AxManager.",
+        "Gunakan Android dengan AxManager, Shizuku, atau Root.",
     };
   if (!d.game.installed)
     return {
@@ -167,7 +168,7 @@ export function readiness(d: Dashboard): {
     return {
       ready: false,
       label: "Izin root diperlukan",
-      detail: "Izinkan akses root, atau pilih Shizuku di Perawatan.",
+      detail: "Izinkan akses root, atau pilih AxManager/Shizuku di Perawatan.",
     };
   if (d.access.method === "shizuku" && !d.shizuku.running)
     return {

@@ -89,7 +89,7 @@ function renderHome() {
   else if (d.access.method === "shizuku" && !d.shizuku.running)
     primary = { action: "setup-shizuku", label: "Buka Shizuku" };
   else if (d.access.method === "axmanager" && (!d.axmanager.installed || !d.axmanager.supported))
-    primary = { action: "setup-axmanager", label: "Buka AxManager" };
+    primary = { action: "setup-axmanager", label: d.axmanager.installed ? "Buka AxManager" : "Unduh AxManager" };
   else if (d.access.method === "axmanager" && !d.access.granted)
     primary = { action: "request_axmanager", label: "Hubungkan AxManager" };
   else if (!d.access.granted)

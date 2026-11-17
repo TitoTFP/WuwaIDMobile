@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Default access:** recommend AxManager first in setup and maintenance. Select it only for fresh installs on Android 8+ / primary user, even before the manager is installed; offer its official download. Persist the initial choice, preserve all saved choices and implicit legacy Shizuku on upgrade, and retain Shizuku defaults on Android 7 / secondary profiles. Denied permissions and disconnected services never trigger fallback or automatic root requests. Browser simulation follows the default while retaining explicit Shizuku scenarios. Device QA remains a separate manual release check.
 - **AxManager 3:** migrate to Axeron `axsh`/`aidl` 3.0.0, `AxBroker`/`AxShellService`, and per-UID capabilities. Discover the manager by its access action; launch the guarded service through its official native `libaxsh.so`, keeping the initial permission request attached to a real client on AxManager 3.0.0. Require app/server versionCode 30000+, retain non-prompting grant checks, and allow explicit connection before a capability is visible. AxManager 2.x is no longer compatible; Shizuku/Root and Android API 24–25 support are unchanged.
 
 ## 1.0.0

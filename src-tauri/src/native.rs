@@ -133,13 +133,13 @@ fn physical_prerequisites(probe: &DeviceProbe) -> PakResult<()> {
     if probe.access_method == "axmanager"
         && (!probe.axmanager.installed || !probe.axmanager.supported || !probe.axmanager.running)
     {
-        return Err("Aktifkan AxManager 2.0.1+ pada Android 8+ user utama terlebih dahulu.".into());
+        return Err("Aktifkan AxManager 3.0.0+ pada Android 8+ user utama terlebih dahulu.".into());
     }
     if !probe.access_granted {
         return Err(match probe.access_method.as_str() {
             "root" => "Berikan izin root terlebih dahulu.",
             "axmanager" => {
-                "Hubungkan storage melalui tombol Berikan izin AxManager terlebih dahulu."
+                "Hubungkan storage melalui tombol Hubungkan di Perawatan terlebih dahulu."
             }
             _ => "Jalankan Shizuku dan berikan izin terlebih dahulu.",
         }

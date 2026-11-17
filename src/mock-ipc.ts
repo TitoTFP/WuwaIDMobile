@@ -24,9 +24,9 @@ function seed(): Dashboard {
     uidAvailable: true,
     game: { installed: true, version: GAME_VERSION, packageName: PACKAGE_NAME },
     resource: { ready: true, version: GAME_VERSION },
-    shizuku: { running: true, granted: true },
+    shizuku: { running: false, granted: false },
     axmanager: { installed: true, supported: true, running: true, version: "3.0.0" },
-    access: { method: "shizuku", granted: true },
+    access: { method: "axmanager", granted: true },
     patch: {
       installed: false,
       healthy: false,
@@ -166,11 +166,14 @@ function scenarioState(scenario: Scenario): Dashboard {
       next.resource.ready = false;
       break;
     case "shizuku_off":
+      next.access.method = "shizuku";
       next.shizuku.running = false;
       next.shizuku.granted = false;
       next.access.granted = false;
       break;
     case "permission":
+      next.access.method = "shizuku";
+      next.shizuku.running = true;
       next.shizuku.granted = false;
       next.access.granted = false;
       break;
@@ -180,6 +183,10 @@ function scenarioState(scenario: Scenario): Dashboard {
       next.access.granted = scenario === "root_ready";
       next.shizuku.running = false;
       next.shizuku.granted = false;
+      break;
+    case "axmanager_missing":
+      next.axmanager = { installed: false, supported: false, running: false, version: "" };
+      next.access.granted = false;
       break;
     case "axmanager_off":
     case "axmanager_permission":

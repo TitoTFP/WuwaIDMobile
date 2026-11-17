@@ -19,6 +19,7 @@ const scenarios: Array<{ id: Scenario; label: string }> = [
   { id: "permission", label: "Perlu izin Shizuku" },
   { id: "root_permission", label: "Perlu izin root" },
   { id: "root_ready", label: "Root siap" },
+  { id: "axmanager_missing", label: "AxManager belum terpasang" },
   { id: "axmanager_off", label: "AxManager belum aktif" },
   { id: "axmanager_permission", label: "Perlu izin AxManager" },
   { id: "axmanager_ready", label: "AxManager siap" },
@@ -96,6 +97,8 @@ export function renderTools(state: UiState): string {
         ? "root_permission"
         : d.access.method === "shizuku" && !d.shizuku.running
           ? "shizuku_off"
+          : d.access.method === "axmanager" && !d.axmanager.installed
+            ? "axmanager_missing"
           : d.access.method === "axmanager" && !d.axmanager.running
             ? "axmanager_off"
           : !d.access.granted
@@ -139,8 +142,8 @@ export function renderTools(state: UiState): string {
   ].map((row) =>
     `<div class="tool-row ${row.icon === "trash" ? "tool-destructive" : ""}"><span class="tool-icon">${icon(row.icon)}</span><div class="tool-copy"><h3>${row.name}</h3>${row.detail ? `<p class="muted">${row.detail}</p>` : ""}</div><div class="actions">${row.actions}</div></div>`,
   ).join("");
-  const methods = (["shizuku", "root", "axmanager"] as const).map((method) =>
-    `<button type="button" data-action="use_${method}" aria-pressed="${d.access.method === method}" ${state.busy || d.access.method === method ? "disabled" : ""}>${ACCESS_LABELS[method]}</button>`,
+  const methods = (["axmanager", "shizuku", "root"] as const).map((method) =>
+    `<button type="button" data-action="use_${method}" aria-pressed="${d.access.method === method}" ${state.busy || d.access.method === method ? "disabled" : ""}>${ACCESS_LABELS[method]}${method === "axmanager" ? "<small>Direkomendasikan</small>" : ""}</button>`,
   ).join("");
   return `<section class="page-heading"><h1>Perawatan</h1></section>
     <section class="health-banner" aria-label="Status pemasangan"><span class="health-icon ${status.ready ? "healthy" : "needs-attention"}">${icon(status.ready ? "check" : "info")}</span><div><h2>${escapeHtml(status.label)}</h2>${!status.ready ? `<p class="muted">${escapeHtml(status.detail)}</p>` : ""}</div><button class="icon-btn" data-action="refresh" aria-label="Periksa perangkat" title="Periksa perangkat" ${state.busy ? "disabled" : ""}>${icon("refresh")}</button></section>
@@ -151,10 +154,10 @@ export function renderTools(state: UiState): string {
         <p class="muted access-description">${d.access.method === "root" ? "Akses langsung melalui su."
           : d.access.method === "axmanager" ? "Android 8+ · user utama · AxManager 3.0.0+"
           : "Akses tanpa root melalui Shizuku."}</p>
-        ${d.access.method === "root" && !d.access.granted ? `<p class="muted">Minta izin lewat tombol di bawah. Jika ditolak atau su tidak tersedia, pilih Shizuku.</p><div class="actions">${button("request_root", "Izinkan root", state.busy)}</div>` : ""}
-        ${d.access.method === "axmanager" ? `<p class="muted">${!d.axmanager.installed ? "Pasang AxManager untuk melanjutkan."
-          : !d.axmanager.supported ? "Versi atau perangkat belum didukung."
-          : "Aktifkan server, lalu pilih Allow all the time. Hubungkan ulang setiap aplikasi dibuka."}</p><div class="actions">${button("setup-axmanager", "Buka AxManager", state.busy || !d.axmanager.installed)}${button("request_axmanager", "Hubungkan", state.busy || !d.axmanager.supported || d.access.granted)}</div>` : ""}
+        ${d.access.method === "root" && !d.access.granted ? `<p class="muted">Minta izin lewat tombol di bawah. Jika ditolak atau su tidak tersedia, pilih AxManager atau Shizuku.</p><div class="actions">${button("request_root", "Izinkan root", state.busy)}</div>` : ""}
+        ${d.access.method === "axmanager" ? `<p class="muted">${!d.axmanager.installed ? "Pasang AxManager 3.0.0+, lalu aktifkan servernya. Jika sudah terpasang, periksa AX-Stealth."
+          : !d.axmanager.supported ? "Perlu Android 8+, user utama, dan aplikasi serta server AxManager 3.0.0+. Perbarui dan mulai ulang server, atau pilih metode lain."
+          : "Aktifkan server, lalu pilih Hubungkan dan izinkan Allow all the time. Hubungkan ulang setiap aplikasi dibuka."}</p><div class="actions">${button("setup-axmanager", d.axmanager.installed ? "Buka AxManager" : "Unduh AxManager", state.busy)}${button("request_axmanager", "Hubungkan", state.busy || !d.axmanager.supported || d.access.granted)}</div>` : ""}
       </section>` : ""}
       <section class="card maintenance-card" aria-labelledby="maintenance-title"><div class="card-header"><h2 id="maintenance-title">Pengelolaan</h2></div><div class="tool-list">${rows}</div></section>
     </div>

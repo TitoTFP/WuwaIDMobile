@@ -199,6 +199,20 @@ describe("maintenance transitions", () => {
     for (const name of ["request_root", "use_root", "use_shizuku", "use_axmanager", "refresh", "repair", "uninstall", "save-diagnostics", "share-diagnostics"])
       expect(action(name).disabled).toBe(true);
   });
+  it.each([false, true])("offers setup and explicit alternatives without granting unavailable AxManager (installed=%s)", (installed) => {
+    const d = dashboard();
+    d.access = { method: "axmanager", granted: false };
+    d.axmanager = { installed, supported: false, running: false, version: "" };
+    tools(state(d));
+    expect(action("setup-axmanager").disabled).toBe(false);
+    expect(action("request_axmanager").disabled).toBe(true);
+    expect(action("use_shizuku").disabled).toBe(false);
+    expect(action("use_root").disabled).toBe(false);
+    expect(action("repair").disabled).toBe(true);
+    expect(action("uninstall").disabled).toBe(true);
+    customize(state(d));
+    expect(document.querySelector<HTMLButtonElement>("#apply-uid")!.disabled).toBe(true);
+  });
   it("allows requesting a private AxManager capability before one is visible, but never enables mutations", () => {
     const d = dashboard();
     d.access = { method: "axmanager", granted: false };
