@@ -15,7 +15,6 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.datatype.jsonorg.JsonOrgModule
 import com.titotfp.wuwaid.R
 import com.titotfp.wuwaid.update.HostLinux
-import com.titotfp.wuwaid.update.HostPosix
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.*
@@ -46,7 +45,7 @@ class DiagnosticTestActivity : AppCompatActivity() {
 }
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [28], shadows = [HostLinux::class, HostPosix::class])
+@Config(sdk = [28], shadows = [HostLinux::class])
 class DiagnosticsPluginTest {
     @get:Rule val temporary = TemporaryFolder()
     private lateinit var activity: DiagnosticTestActivity
