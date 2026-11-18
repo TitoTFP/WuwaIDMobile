@@ -2,16 +2,13 @@
 
 ## Unreleased
 
-- **Scrollbars:** hide page and Android WebView scroll indicators while retaining touch, wheel, and keyboard scrolling.
-- **Progressive startup:** render navigation before IPC completes; separate local package/preferences bootstrap, background release metadata, and passive access checks. Inspect resource/patch/UID only on demand or after explicit connection, with independent unchecked/loading/error states and retries. Provider selection and game launch no longer scan storage; offline recovery/removal and fresh transactional installer preflight remain intact.
-- **Startup review:** coalesce navigation queued during busy tracing, keep stale storage/UID facts unchecked after inspection failure, and reserve inspection timestamps for storage responses. Disable refresh controls while their prerequisites are loading.
-- **Access location:** keep provider setup only on Home. Maintenance uses the full width for management and links back to Home when access is unavailable.
-- **Access transitions:** keep the method selector stationary, omit global loading during provider selection, and animate card size/content changes without bypassing busy guards. Interrupted transitions continue from their visible size; reduced-motion preferences disable motion.
-- **Home layout:** swap Access and Device cards: Translation and Access share the top grid, with Device below; mobile follows the same order.
-- **Setup copy:** shorten access guidance and status messages, remove inline help sections and repeated descriptions, and move the AxManager recommendation outside the method selector. Provider selection is silent; authorization and error feedback remain.
-- **Access setup UX:** share one setup card between Home and Maintenance; add installed-state detection and official download/open actions for Shizuku, plus in-place permission controls. Refresh status once after returning from explicitly opened setup, deferring until active operations/updater finish; never request privileges, reconnect, or switch methods automatically. Separate session connectivity from permission guidance, explain Root prerequisites and contextual AX-Stealth help, and use operation-specific indeterminate feedback until real file progress arrives.
-- **Default access:** recommend AxManager first in setup and maintenance. Select it only for fresh installs on Android 8+ / primary user, even before the manager is installed; offer its official download. Persist the initial choice, preserve all saved choices and implicit legacy Shizuku on upgrade, and retain Shizuku defaults on Android 7 / secondary profiles. Denied permissions and disconnected services never trigger fallback or automatic root requests. Browser simulation follows the default while retaining explicit Shizuku scenarios. Device QA remains a separate manual release check.
-- **AxManager 3:** migrate to Axeron `axsh`/`aidl` 3.0.0, `AxBroker`/`AxShellService`, and per-UID capabilities. Discover the manager by its access action; launch the guarded service through its official native `libaxsh.so`, keeping the initial permission request attached to a real client on AxManager 3.0.0. Require app/server versionCode 30000+, retain non-prompting grant checks, and allow explicit connection before a capability is visible. AxManager 2.x is no longer compatible; Shizuku/Root and Android API 24–25 support are unchanged.
+## 1.0.1
+
+- **AxManager 3:** migrate to Axeron 3 and launch the guarded storage service through the official `libaxsh.so`. Requires AxManager app and server 3.0.0+; AxManager 2.x is no longer supported. Shizuku and Root remain available.
+- **Default access:** choose AxManager for new installs on Android 8+ in the primary profile. Preserve saved choices and legacy Shizuku on upgrade. Never switch providers or request Root automatically.
+- **Access setup:** use one setup card on Home with direct download/open actions, passive refresh after returning from setup, and smoother provider switching. Maintenance links back to Home.
+- **Faster startup:** show navigation before checking access or fetching release metadata. Inspect game resources, patches, and UID on demand. Keep fresh permission and file ownership checks before mutations.
+- **Scrollbars:** hide page and Android WebView scroll indicators without disabling scrolling.
 
 ## 1.0.0
 
