@@ -218,7 +218,7 @@ class AppUpdatePluginTest {
         assertEquals(2, fixture.server.requestCount)
     }
 
-    @Test @Config(sdk = [24], shadows = [HostPosix::class, HostLegacyArchiveParser::class])
+    @Test @Config(sdk = [24], shadows = [HostLegacyArchiveParser::class])
     fun preOreoOpensInstallerWithoutAnUnknownSourcesPermissionScreen() {
         val id = request("install")
         val installer = launch()

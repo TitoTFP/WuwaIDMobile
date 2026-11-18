@@ -4,7 +4,7 @@ use std::sync::{
 };
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 #[cfg(target_os = "android")]
 use tauri::Emitter;
 use tauri::{AppHandle, Manager};
@@ -40,15 +40,27 @@ impl Drop for BusyGuard {
     }
 }
 
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalDevice {
+    game: Game,
+    access_method: String,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Dashboard {
+pub struct BootstrapSnapshot {
     mode: &'static str,
     platform_supported: bool,
+    uid_available: bool,
+    device: LocalDevice,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InspectionSnapshot {
     storage_writable: bool,
     blocker: Option<String>,
-    release: Option<Release>,
-    uid_available: bool,
     game: Game,
     resource: Resource,
     shizuku: Shizuku,
@@ -56,9 +68,26 @@ pub struct Dashboard {
     access: Access,
     patch: InstallStatus,
     uid: Uid,
+    inspection: &'static str,
     last_checked: u64,
 }
+
 #[derive(Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "Serialized once at the IPC boundary; boxing adds an avoidable allocation."
+)]
+pub enum OperationResult {
+    #[cfg(target_os = "android")]
+    Access { snapshot: AccessSnapshot },
+    #[cfg(target_os = "android")]
+    Inspection {
+        snapshot: InspectionSnapshot,
+        release: Option<Release>,
+    },
+}
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Game {
     installed: bool,
@@ -70,16 +99,24 @@ struct Resource {
     ready: bool,
     version: String,
 }
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 struct Shizuku {
+    installed: bool,
     running: bool,
     granted: bool,
 }
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 struct Access {
     method: String,
     granted: bool,
 }
+#[derive(Deserialize, Serialize)]
+pub struct AccessSnapshot {
+    shizuku: Shizuku,
+    axmanager: AxManagerStatus,
+    access: Access,
+}
+
 #[derive(Serialize)]
 struct Uid {
     original: &'static str,
@@ -92,6 +129,7 @@ pub(crate) fn timestamp() -> u64 {
         .unwrap_or_default()
         .as_millis() as u64
 }
+#[cfg(target_os = "android")]
 fn empty_status() -> InstallStatus {
     InstallStatus {
         installed: false,
@@ -133,14 +171,12 @@ fn physical_prerequisites(probe: &DeviceProbe) -> PakResult<()> {
     if probe.access_method == "axmanager"
         && (!probe.axmanager.installed || !probe.axmanager.supported || !probe.axmanager.running)
     {
-        return Err("Aktifkan AxManager 2.0.1+ pada Android 8+ user utama terlebih dahulu.".into());
+        return Err("Aktifkan AxManager 3.0.0+ pada Android 8+ user utama terlebih dahulu.".into());
     }
     if !probe.access_granted {
         return Err(match probe.access_method.as_str() {
             "root" => "Berikan izin root terlebih dahulu.",
-            "axmanager" => {
-                "Hubungkan storage melalui tombol Berikan izin AxManager terlebih dahulu."
-            }
+            "axmanager" => "Hubungkan storage melalui tombol Hubungkan di Beranda terlebih dahulu.",
             _ => "Jalankan Shizuku dan berikan izin terlebih dahulu.",
         }
         .into());
@@ -182,50 +218,33 @@ fn check_compatibility(
     Ok(())
 }
 
-fn load_dashboard(
+fn inspect_dashboard(
     app: &AppHandle,
-    refresh_release: bool,
     completed: Option<(ResourceLayout, InstallStatus)>,
-) -> PakResult<Dashboard> {
-    let _response = Span::new("dashboard.response");
-    let release_result = if refresh_release {
-        fetch_release(app).map(Some)
-    } else {
-        current_release(app)
-    };
-    let (selected_release, release_error) = match release_result {
-        Ok(value) => (value, None),
-        Err(error) => (None, Some(error)),
-    };
+) -> PakResult<InspectionSnapshot> {
+    let _response = Span::new("dashboard.inspect");
     #[cfg(not(target_os = "android"))]
     {
-        let _ = completed;
-        Ok(Dashboard {
-            mode: "native", platform_supported: false, storage_writable: false,
-            blocker: Some(match release_error {
-                Some(error) => format!("Pemasangan .pak memerlukan Android dengan Shizuku, Root, atau AxManager. Rilis latest belum dapat dibaca: {error}"),
-                None => "Pemasangan .pak memerlukan Android dengan Shizuku, Root, atau AxManager. Desktop tidak menulis direktori game.".into(),
-            }),
-            release: selected_release, uid_available: false,
-            game: Game { installed: false, version: String::new(), package_name: GAME_PACKAGE.into() },
-            resource: Resource { ready: false, version: String::new() },
-            shizuku: Shizuku { running: false, granted: false }, patch: empty_status(),
-            axmanager: AxManagerStatus::default(),
-            access: Access { method: "shizuku".into(), granted: false },
-            uid: Uid { original: "", custom: None }, last_checked: timestamp(),
-        })
+        let _ = (app, completed);
+        Err("Pemeriksaan storage hanya tersedia di Android.".into())
     }
     #[cfg(target_os = "android")]
     {
         let storage = bridge(app);
         let probe = storage.probe()?;
-        let mut blocker = release_error.or_else(|| probe.storage_error.clone());
+        let mut blocker = probe.storage_error.clone();
+        if probe.access_granted && !probe.root_readable && blocker.is_none() {
+            blocker =
+                Some("Resource game belum dapat dibaca. Periksa akses dan unduhan game.".into());
+        }
+        let mut inspection = "not_checked";
         let mut resource = Resource {
             ready: false,
             version: String::new(),
         };
         let mut patch = empty_status();
         if probe.access_granted && probe.root_readable {
+            inspection = "ready";
             // A successful transaction already returned a fully inspected terminal state.
             // This is scoped to this response; explicit refresh still discovers and hashes.
             let (layout, status) = match completed {
@@ -253,13 +272,12 @@ fn load_dashboard(
             }
         }
         let custom_uid = patch.custom_uid.take();
-        Ok(Dashboard {
-            mode: "native",
-            platform_supported: true,
+        if blocker.is_some() {
+            inspection = "error";
+        }
+        Ok(InspectionSnapshot {
             storage_writable: probe.root_writable,
             blocker,
-            release: selected_release,
-            uid_available: true,
             game: Game {
                 installed: probe.game_installed,
                 version: probe.game_version,
@@ -267,6 +285,7 @@ fn load_dashboard(
             },
             resource,
             shizuku: Shizuku {
+                installed: probe.shizuku_installed,
                 running: probe.shizuku_running,
                 granted: probe.shizuku_granted,
             },
@@ -280,6 +299,7 @@ fn load_dashboard(
                 original: "",
                 custom: custom_uid,
             },
+            inspection,
             last_checked: timestamp(),
         })
     }
@@ -306,11 +326,72 @@ pub fn wuwa_ui_trace(request_id: u64, event: String, frontend_us: u64) -> PakRes
 }
 
 #[tauri::command]
-pub async fn wuwa_load(app: AppHandle, request_id: u64) -> PakResult<Dashboard> {
+pub async fn wuwa_bootstrap(app: AppHandle, request_id: u64) -> PakResult<BootstrapSnapshot> {
     tauri::async_runtime::spawn_blocking(move || {
         let _request = Request::enter(request_id);
-        let _load = Span::new("dashboard.load");
-        load_dashboard(&app, true, None)
+        #[cfg(target_os = "android")]
+        let device = bridge(&app).bootstrap()?;
+        #[cfg(not(target_os = "android"))]
+        let device = {
+            let _ = app;
+            LocalDevice {
+                game: Game {
+                    installed: false,
+                    version: String::new(),
+                    package_name: GAME_PACKAGE.into(),
+                },
+                access_method: "shizuku".into(),
+            }
+        };
+        Ok(BootstrapSnapshot {
+            mode: "native",
+            platform_supported: cfg!(target_os = "android"),
+            uid_available: cfg!(target_os = "android"),
+            device,
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn wuwa_release(app: AppHandle, request_id: u64) -> PakResult<Release> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let _request = Request::enter(request_id);
+        fetch_release(&app)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn wuwa_inspect(app: AppHandle, request_id: u64) -> PakResult<InspectionSnapshot> {
+    let guard = BusyGuard::acquire(Arc::clone(app.state::<Arc<NativeState>>().inner()))?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = guard;
+        let _request = Request::enter(request_id);
+        inspect_dashboard(&app, None)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn wuwa_access_status(app: AppHandle, request_id: u64) -> PakResult<AccessSnapshot> {
+    let guard = BusyGuard::acquire(Arc::clone(app.state::<Arc<NativeState>>().inner()))?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = guard;
+        let _request = Request::enter(request_id);
+        let _status = Span::new("access.status");
+        #[cfg(target_os = "android")]
+        {
+            bridge(&app).access_status()
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            let _ = app;
+            Err("Status akses hanya tersedia di Android.".into())
+        }
     })
     .await
     .map_err(|e| e.to_string())?
@@ -322,7 +403,7 @@ pub async fn wuwa_run(
     operation: String,
     uid_text: Option<String>,
     request_id: u64,
-) -> PakResult<Dashboard> {
+) -> PakResult<OperationResult> {
     let guard = BusyGuard::acquire(Arc::clone(app.state::<Arc<NativeState>>().inner()))?;
     tauri::async_runtime::spawn_blocking(move || {
         let _guard = guard;
@@ -336,9 +417,15 @@ pub async fn wuwa_run(
         #[cfg(target_os = "android")]
         {
             let storage = bridge(&app);
+            let mut used_release = None;
             let completed = match operation.as_str() {
-                "request_permission" | "request_root" | "request_axmanager" | "use_root"
-                | "use_shizuku" | "use_axmanager" | "launch_game" => {
+                "use_root" | "use_shizuku" | "use_axmanager" | "launch_game" => {
+                    storage.control(&operation)?;
+                    return Ok(OperationResult::Access {
+                        snapshot: storage.access_status()?,
+                    });
+                }
+                "request_permission" | "request_root" | "request_axmanager" => {
                     storage.control(&operation)?;
                     None
                 }
@@ -386,7 +473,7 @@ pub async fn wuwa_run(
                             .map_err(|e| e.to_string())?
                             .join("release-paks");
                         let pak = release::download(&release, &cache, &progress)?;
-                        if operation == "repair" {
+                        let installed = if operation == "repair" {
                             installer::repair(
                                 &*storage,
                                 &layout,
@@ -404,13 +491,18 @@ pub async fn wuwa_run(
                                 custom_uid.as_deref(),
                                 &progress,
                             )?
-                        }
+                        };
+                        used_release = Some(release);
+                        installed
                     };
                     Some((layout, completed))
                 }
                 _ => return Err("Operasi tidak dikenal.".into()),
             };
-            load_dashboard(&app, false, completed)
+            Ok(OperationResult::Inspection {
+                snapshot: inspect_dashboard(&app, completed)?,
+                release: used_release,
+            })
         }
     })
     .await
@@ -450,6 +542,7 @@ mod access_tests {
             game_installed: true,
             game_version: "3.7.0".into(),
             game_package: crate::pak::model::GAME_PACKAGE.into(),
+            shizuku_installed: false,
             shizuku_running: false,
             shizuku_granted: false,
             axmanager: AxManagerStatus::default(),

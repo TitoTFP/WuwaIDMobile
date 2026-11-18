@@ -26,19 +26,21 @@
 
 ## Mulai bermain
 
-Siapkan **Android ARM64** dan **Wuthering Waves Global atau Galaxy Store**. Pilih satu metode akses:
+Siapkan **Android ARM64** dan **Wuthering Waves Global atau Galaxy Store**. **AxManager direkomendasikan** dan menjadi default instalasi baru pada Android 8+ di user utama. Pilihan pengguna lama tetap dipertahankan.
 
 | Metode | Yang perlu disiapkan |
 |---|---|
-| [Shizuku](https://shizuku.rikka.app/) | Jalankan layanan Shizuku dan berikan izin kepada WuwaID Mobile. |
-| Root | Perangkat rooted dan izin dari pengelola root. |
-| [AxManager](https://github.com/fahrez182/AxManager/releases) | Versi 3.0.0+, server aktif, Android 8+ pada user utama. Izinkan WuwaID Mobile melalui Hubungkan; tidak memerlukan layanan Shizuku. |
+| [AxManager](https://github.com/fahrez182/AxManager/releases) | Versi aplikasi dan server 3.0.0+, Android 8+ pada user utama. Aktifkan server, pilih Hubungkan, lalu Allow all the time. Tidak memerlukan layanan Shizuku. |
+| [Shizuku](https://shizuku.rikka.app/) | Alternatif; default instalasi baru pada Android 7 atau profil sekunder. Jalankan layanan dan berikan izin kepada WuwaID Mobile. |
+| Root | Alternatif untuk perangkat rooted; izin diminta secara eksplisit dari pengelola root. |
 
 1. Buka game dan selesaikan unduhan resource, termasuk paket bahasa Inggris.
-2. Buka **Perawatan**, pilih metode akses, lalu berikan izinnya.
-3. Kembali ke **Beranda** dan pilih **Pasang terjemahan**.
+2. Buka kartu **Akses game** di Beranda. Pilih metode, unduh/buka manager bila diperlukan, lalu hubungkan atau berikan izin langsung di kartu tersebut. Lihat [pengaturan AxManager](docs/android.md#akses-axmanager).
+3. Pilih **Periksa resource** bila status belum diperiksa, lalu **Pasang terjemahan**.
 
-Metode akses tidak berpindah otomatis. Jika aplikasi atau layanan dimulai ulang, hubungkan kembali melalui tombol izin bila diperlukan.
+Metode akses tidak berpindah otomatis saat izin ditolak atau koneksi putus. AxManager memerlukan **Hubungkan** ulang setiap aplikasi dibuka atau server dimulai ulang. Pengguna lama tanpa pilihan tersimpan tetap memakai Shizuku saat upgrade.
+Setelah membuka manager dari aplikasi, status diperiksa otomatis saat kembali, setelah operasi aktif selesai. Pemeriksaan tidak meminta izin, menghubungkan ulang, atau mengganti metode. Root hanya untuk perangkat yang sudah di-root; WuwaIDMobile tidak melakukan root.
+Beranda langsung tampil; pemeriksaan akses dan rilis berlangsung terpisah. Resource dan patch baru diperiksa saat diminta atau membuka Kustomisasi/Perawatan. Status belum diperiksa bukan berarti belum terpasang. [Alur pemuatan](docs/android.md#pemuatan-bertahap).
 
 **Sudah memakai versi lama?** Jangan uninstall atau hapus data untuk upgrade. Ikuti [panduan upgrade](docs/android.md#release-dan-upgrade); APK debug bukan pengganti APK rilis.
 

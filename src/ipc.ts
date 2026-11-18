@@ -3,6 +3,11 @@ import { listen } from "@tauri-apps/api/event";
 import { diagnosticHistory, exportInBrowser, serializeDiagnostics } from "./diagnostics";
 import type {
   AppUpdateStatus,
+  AccessSnapshot,
+  BootstrapSnapshot,
+  InspectionSnapshot,
+  OperationResult,
+  ReleaseInfo,
   Dashboard,
   Diagnostics,
   DiagnosticReport,
@@ -40,8 +45,12 @@ async function command<T>(
     await ready;
     const requestId = busyRequest ?? ++nextRequest;
     const result = await invoke<T>(name, { ...args, requestId });
-    if (name === "wuwa_load" || name === "wuwa_run" || name === "wuwa_set_scenario")
-      activeUid = (result as Dashboard).uid.custom;
+    if (name === "wuwa_inspect" || name === "wuwa_set_scenario")
+      activeUid = (result as InspectionSnapshot).uid.custom;
+    if (name === "wuwa_run") {
+      const outcome = result as OperationResult;
+      if (outcome.kind === "inspection") activeUid = outcome.snapshot.uid.custom;
+    }
     if (recording) await uiTrace(requestId, "response");
     return result;
   } catch (error) {
@@ -61,6 +70,7 @@ async function uiTrace(requestId: number, event: "busy_start" | "busy_end" | "re
 }
 
 export const api = {
+  mode: native ? "native" as const : "mock" as const,
   async beginBusy() {
     const startedUs = recording ? Math.round(performance.now() * 1000) : undefined;
     await ready;
@@ -72,7 +82,10 @@ export const api = {
     busyRequest = undefined;
     if (requestId !== undefined) await uiTrace(requestId, "busy_end");
   },
-  load: () => command<Dashboard>("wuwa_load"),
+  bootstrap: () => command<BootstrapSnapshot>("wuwa_bootstrap"),
+  release: () => command<ReleaseInfo>("wuwa_release"),
+  inspect: () => command<InspectionSnapshot>("wuwa_inspect"),
+  accessStatus: () => command<AccessSnapshot>("wuwa_access_status"),
   setScenario(scenario: Scenario) {
     if (native)
       return Promise.reject(
@@ -81,7 +94,7 @@ export const api = {
     return command<Dashboard>("wuwa_set_scenario", { scenario });
   },
   run: (operation: Operation, uidText?: string) =>
-    command<Dashboard>("wuwa_run", { operation, uidText }),
+    command<OperationResult>("wuwa_run", { operation, uidText }),
   async diagnostics(): Promise<Diagnostics> {
     const report = await command<DiagnosticReport>("wuwa_diagnostics");
     return serializeDiagnostics(report, diagnosticHistory, [activeUid]);

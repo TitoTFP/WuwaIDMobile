@@ -73,12 +73,27 @@ Output berada di `src-tauri/gen/android/app/build/outputs/apk/`. CI membangun AR
 ### Instalasi dan migrasi
 
 1. Pasang Global (`com.kurogame.wutheringwaves.global`) atau Galaxy Store (`com.kurogame.wutheringwaves.samsung`); selesaikan resource game dan paket bahasa Inggris.
-2. Pilih metode di **Perawatan**. Shizuku memerlukan server API 12+ dan grant normal. Root meminta `su` hanya melalui **Izinkan root**, bukan saat membuka aplikasi/refresh. Untuk AxManager, ikuti [setup berikut](#akses-axmanager).
-3. Pilih **Pasang terjemahan**. Game dihentikan sebelum perubahan berkas. Pilihan akses disimpan; Root/AxManager memerlukan koneksi ulang lewat tombol izin setelah aplikasi/service dimulai ulang. Tidak ada fallback otomatis atau pergantian metode selama operasi.
+2. Buka kartu **Akses game** di Beranda. Shizuku menampilkan Unduh/Buka serta Izinkan langsung di kartu; permintaan izin hanya aktif setelah layanan terdeteksi. Server Shizuku tetap memerlukan API 12+. Root hanya untuk perangkat yang sudah di-root: aplikasi tidak melakukan root dan meminta `su` hanya melalui **Izinkan root**, bukan saat membuka aplikasi/refresh. Untuk AxManager, ikuti [setup berikut](#akses-axmanager).
+3. Pilih **Periksa resource** bila belum diperiksa, lalu **Pasang terjemahan**. Game dihentikan sebelum perubahan berkas. Pilihan akses disimpan; Root/AxManager memerlukan koneksi ulang secara eksplisit setelah aplikasi/service dimulai ulang. Izin yang tersimpan bukan bukti sesi aktif. Tidak ada fallback otomatis atau pergantian metode selama operasi.
+
+Setelah membuka pengaturan/manager dari WuwaIDMobile, kembali ke aplikasi memicu pemeriksaan status pasif sekali. Jika operasi atau updater sedang aktif, pemeriksaan ditunda sampai selesai; tidak ada permintaan izin, reconnect, atau pemilihan metode otomatis. **Periksa akses** tetap tersedia untuk pemeriksaan manual. Setup memakai pesan menunggu tanpa persentase; persentase hanya muncul ketika operasi berkas mengirim progres nyata.
+
+Pemeriksaan otomatis memakai `wuwa_access_status`: hanya membaca paket, Binder, dan izin yang tersedia; tidak memulai service ataupun memindai berkas game. Jika izin Shizuku sudah ada tetapi service storage belum tersambung, kartu menawarkan **Hubungkan Shizuku**, bukan meminta izin lagi. **Periksa akses** manual memeriksa resource/patch penuh saat status akses sudah diketahui; bila status akses gagal, tombol mengulangi pemeriksaan pasif.
 
 Jika kedua paket terpasang, pilih resource Global yang siap, lalu Galaxy Store, lalu paket terpasang pertama. Paket aktif dibekukan selama sesi.
 
 Upgrade versi sebelum Tauri memakai APK release dengan package/key yang sama; jangan uninstall atau hapus data. APK debug bukan jalur upgrade. Setelah upgrade, pilih metode akses dan **Perawatan → Migrasikan**. Migrasi offline mensyaratkan SHA-256/ukuran PAK cocok katalog rilis historis, signature tidak kosong, dan descriptor lama cocok persis dengan PAK/signature. Sumber lama dipertahankan sampai set baru terverifikasi; berkas ambigu/tidak dikenal memblokir mutasi. Setelah migrasi, pasang PAK stabil yang sesuai lini game/resource dan terapkan UID setelah status sehat.
+
+### Pemuatan bertahap
+
+- Shell dan navigasi tampil sebelum IPC selesai. `wuwa_bootstrap` hanya membaca metadata paket game dan pilihan akses tersimpan; tanpa Binder manager, shell, atau berkas game.
+- `wuwa_release` mengambil rilis PAK secara independen. Kegagalan jaringan tidak menahan status akses atau pemeriksaan storage; **Periksa rilis** mengulanginya.
+- Setelah bootstrap, `wuwa_access_status` memeriksa akses secara pasif di latar belakang. Tidak meminta izin, mengikat service baru, atau mencari root otomatis.
+- `wuwa_inspect` memindai resource, kepemilikan patch, dan UID hanya saat **Periksa resource/akses**, membuka Kustomisasi/Perawatan dengan akses tersedia, atau setelah koneksi/izin diminta secara eksplisit. Tidak mengambil rilis jaringan. Beranda tidak memulai pemindaian otomatis.
+- Setiap tahap memiliki status `not_checked`, `loading`, `ready`, atau `error`. Belum diperiksa/gagal bukan bukti game, izin, resource, atau patch tidak ada. Mutasi terkunci sampai prasyaratnya terverifikasi.
+- Pemilihan metode dan buka game hanya memperbarui status akses. Hasil rilis tidak menimpa hasil inspeksi, dan perubahan metode/kehilangan akses membatalkan status storage lama. Tidak ada retry penuh otomatis setelah kegagalan.
+- Permintaan inspeksi dari perpindahan halaman digabungkan; hasil inspeksi yang sudah selesai tidak dipindai ulang oleh antrean navigasi lama. Status gagal tidak menampilkan centang siap atau UID aktif dari hasil lama. Waktu **Diperiksa** hanya berubah setelah respons inspeksi storage, bukan pemeriksaan akses pasif.
+- Installer tetap memeriksa izin, storage, kepemilikan, dan transaksi kembali pada setiap operasi. Pemulihan/migrasi offline dan hapus patch terverifikasi tidak bergantung pada keberhasilan pemeriksaan rilis.
 
 ### Berkas dan batas keselamatan
 
@@ -108,7 +123,12 @@ Sebelum membuka installer, periksa nama aset, ukuran/SHA-256, package `com.titot
 
 ## Akses AxManager
 
-Pilih **AxManager** secara eksplisit di Perawatan. Persyaratan: Android API 26+, user utama (user 0), dan aplikasi **serta server** AxManager 3.0.0/versionCode 30000 atau lebih baru. AxManager 1.x/2.x tidak didukung oleh integrasi ini. Setelah update APK AxManager, mulai ulang servernya. Android API 24–25 tetap memakai Root/Shizuku; minimum SDK aplikasi tidak dinaikkan. Profil sekunder/work profile tidak didukung.
+**AxManager direkomendasikan** dan menjadi default instalasi baru pada Android API 26+ di user utama (user 0), termasuk ketika manager belum terpasang. Android API 24–25 dan profil sekunder memakai default Shizuku; minimum SDK aplikasi tidak berubah. Pilihan tersimpan selalu dipertahankan. Upgrade dari versi lama tanpa pilihan tersimpan tetap memakai Shizuku: aplikasi membedakan instalasi baru dari upgrade melalui `PackageInfo.firstInstallTime` dan `lastUpdateTime`, lalu menyimpan pilihan awal di `storage-access`. Tidak ada pemilihan berdasarkan manager/layanan yang sedang aktif ataupun fallback otomatis.
+
+1. Buka **Akses game** di Beranda. Jika belum terpasang, pilih **Unduh AxManager** untuk membuka [rilis resmi](https://github.com/fahrez182/AxManager/releases) di browser. Jika sudah terpasang tetapi tidak terdeteksi, periksa pengaturan AX-Stealth di AxManager.
+2. Gunakan aplikasi **serta server** AxManager 3.0.0/versionCode 30000 atau lebih baru. AxManager 1.x/2.x tidak didukung. Setelah update APK AxManager, mulai ulang servernya. Metode ini hanya mendukung Android 8+ dan user utama, bukan profil sekunder/work profile.
+3. Aktifkan server AxManager, kembali ke WuwaID Mobile, lalu pilih **Hubungkan** dan izinkan **Allow all the time**. Refresh tidak meminta izin. Gunakan Hubungkan lagi setiap aplikasi dibuka atau server dimulai ulang.
+4. Untuk memakai metode lain, pilih **Shizuku** atau **Root** di kartu **Akses game** dan berikan izinnya secara eksplisit. Penolakan izin atau koneksi putus tidak mengubah metode terpilih.
 
 Backend memakai [Axeron-API `axsh`/`aidl` 3.0.0](https://github.com/fahrez182/Axeron-API/tree/3.0.0):
 
@@ -129,6 +149,10 @@ Adaptasi mempertahankan kontribusi awal [@Ishcy melalui PR #9](https://github.co
 ### QA AxManager
 
 Gunakan APK debug ARM64 agar package release/data pengguna tetap dipertahankan. Catat baseline patch/UID dan kembalikan setelah tes. Jangan memasang dua installer secara bersamaan pada resource yang sama.
+
+Sebelum merilis perubahan default, uji instalasi baru (AxManager dipilih meski belum terpasang), upgrade dengan setiap pilihan tersimpan, serta upgrade versi lama yang belum pernah memilih metode (tetap Shizuku). Instalasi baru API 24–25/profil sekunder harus memilih Shizuku; pilihan tersimpan tidak boleh diubah karena lingkungan tidak mendukungnya. Uji tombol Unduh/Buka, deny/cancel, restart aplikasi/server, dan pastikan tidak ada permintaan root atau fallback otomatis. Tes host/browser bukan bukti QA perangkat asli.
+
+Untuk QA setup pada perangkat asli: periksa Unduh/Buka Shizuku, izin Shizuku dari Beranda, tautan pengaturan akses dari status Perawatan, serta pemeriksaan pasif setelah kembali dari manager. Uji kembali saat operasi/updater aktif: tidak boleh ada operasi bertumpuk, dialog izin otomatis, atau perpindahan metode. Status AxManager/Root yang belum tersambung tidak boleh dianggap pencabutan izin. Indikator setup tidak menampilkan persentase pemasangan. Pengujian host/browser tidak menggantikan dialog izin dan lifecycle Android asli.
 
 1. Jalankan server AxManager 3.0.0+; matikan layanan Shizuku lewat menu manager, tanpa mengubah konfigurasi wireless debugging. Pastikan proses `shizuku_server` tidak ada dan dashboard `shizuku.running=false`.
 2. Pilih AxManager: sebelum grant, Hubungkan harus tetap aktif walau capability belum tersedia. Uji deny/cancel, lalu grant melalui dialog normal atau halaman Privilege. Refresh tidak boleh meminta izin sendiri. Cabut izin dan pastikan akses/mutasi diblokir; restart server harus memerlukan koneksi ulang.

@@ -37,7 +37,7 @@ internal class RootSession(private val activity: Activity) {
     StorageTrace.phase(requestId, "permission.root") {
       Shell.Builder.create().setContext(activity).setTimeout(60).build().use { shell ->
         if (!shell.isRoot) {
-          throw SecurityException("Izin root ditolak atau su tidak tersedia. Izinkan WuwaIDMobile di pengelola root, atau pilih Shizuku.")
+          throw SecurityException("Izin root ditolak atau su tidak tersedia. Izinkan WuwaIDMobile di pengelola root, atau pilih AxManager/Shizuku.")
         }
         val ready = CountDownLatch(1)
         val conn = object : ServiceConnection {

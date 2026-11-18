@@ -20,8 +20,7 @@ import org.robolectric.shadows.ShadowBuild
 import java.io.File
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [28], shadows = [HostApkFileDataSource::class, HostSigningInfo::class,
-    HostLinux::class, HostPosix::class])
+@Config(sdk = [28], shadows = [HostApkFileDataSource::class, HostSigningInfo::class, HostLinux::class])
 class AppUpdateRepositoryTest {
     @get:Rule val temporary = TemporaryFolder()
     private lateinit var fixture: UpdateFixture
