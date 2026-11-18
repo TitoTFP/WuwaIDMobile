@@ -6,6 +6,7 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   color-scheme: light;
+  scrollbar-width: none;
   --bg: #f6f7fa;
   --surface: #fff;
   --surface-soft: #f0f1f6;
@@ -48,6 +49,7 @@
 }
 * { box-sizing: border-box; }
 body { margin: 0; }
+:root::-webkit-scrollbar, body::-webkit-scrollbar { display: none; }
 button, input, select { font: inherit; }
 button, a, select, summary { -webkit-tap-highlight-color: transparent; }
 button, summary { cursor: pointer; }

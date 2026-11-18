@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Scrollbars:** hide page and Android WebView scroll indicators while retaining touch, wheel, and keyboard scrolling.
 - **Progressive startup:** render navigation before IPC completes; separate local package/preferences bootstrap, background release metadata, and passive access checks. Inspect resource/patch/UID only on demand or after explicit connection, with independent unchecked/loading/error states and retries. Provider selection and game launch no longer scan storage; offline recovery/removal and fresh transactional installer preflight remain intact.
 - **Startup review:** coalesce navigation queued during busy tracing, keep stale storage/UID facts unchecked after inspection failure, and reserve inspection timestamps for storage responses. Disable refresh controls while their prerequisites are loading.
 - **Access location:** keep provider setup only on Home. Maintenance uses the full width for management and links back to Home when access is unavailable.
