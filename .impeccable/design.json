@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-22T07:31:33Z",
+  "title": "Design System: WuwaID Mobile",
+  "extensions": {
+    "breakpoints": [
+      { "name": "desktop navigation", "value": "48rem" },
+      { "name": "split readiness board", "value": "56rem" },
+      { "name": "split workspace", "value": "62rem" }
+    ],
+    "motion": [
+      { "name": "state reveal", "value": "160ms ease-out", "purpose": "Perubahan metode akses, dialog, toast, dan progres." }
+    ],
+    "shadows": [
+      { "name": "overlay", "value": "0 16px 48px #0003", "purpose": "Dialog dan toast pada tema terang." },
+      { "name": "dark overlay", "value": "0 16px 48px #0007", "purpose": "Dialog dan toast pada tema gelap." }
+    ]
+  },
+  "components": [
+    {
+      "name": "Tindakan utama",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Langkah berikutnya pada suatu tugas.",
+      "html": "<button class=\"ds-primary\" type=\"button\">Pasang terjemahan</button>",
+      "css": ".ds-primary{min-height:2.75rem;padding:.625rem .875rem;border:1px solid transparent;border-radius:.5rem;background:var(--accent,#146356);color:var(--on-accent,#fff);font:660 .875rem/1.25 system-ui;cursor:pointer}.ds-primary:hover{background:var(--accent-hover,#104e45)}.ds-primary:focus-visible{outline:2px solid var(--focus,#126b5b);outline-offset:3px}"
+    },
+    {
+      "name": "Tindakan sekunder",
+      "kind": "button",
+      "description": "Aksi bantu tanpa menggeser tindakan utama.",
+      "html": "<button class=\"ds-secondary\" type=\"button\">Buka AxManager</button>",
+      "css": ".ds-secondary{min-height:2.75rem;padding:.625rem .875rem;border:1px solid var(--field-edge,#819a92);border-radius:.5rem;background:var(--surface,#fbfdfa);color:var(--ink,#142f32);font:660 .875rem/1.25 system-ui;cursor:pointer}.ds-secondary:hover{background:var(--wash,#e6efeb)}.ds-secondary:focus-visible{outline:2px solid var(--focus,#126b5b);outline-offset:3px}"
+    },
+    {
+      "name": "Tindakan hapus",
+      "kind": "button",
+      "description": "Penghapusan yang memerlukan konfirmasi.",
+      "html": "<button class=\"ds-danger\" type=\"button\">Hapus terjemahan</button>",
+      "css": ".ds-danger{min-height:2.75rem;padding:.625rem .875rem;border:1px solid transparent;border-radius:.5rem;background:var(--danger-wash,#f9e7ea);color:var(--danger,#913747);font:660 .875rem/1.25 system-ui;cursor:pointer}.ds-danger:hover{border-color:currentColor}.ds-danger:focus-visible{outline:2px solid var(--focus,#126b5b);outline-offset:3px}"
+    },
+    {
+      "name": "Input UID",
+      "kind": "input",
+      "description": "Draf tidak mengubah nilai aktif sebelum diterapkan.",
+      "html": "<label class=\"ds-label\">Teks pengganti <input class=\"ds-input\" maxlength=\"32\" placeholder=\"Rover Indonesia\" /></label>",
+      "css": ".ds-label{display:grid;gap:.5rem;color:var(--ink,#142f32);font:670 .875rem system-ui}.ds-input{min-height:3rem;padding:.625rem .75rem;border:1px solid var(--field-edge,#819a92);border-radius:.5rem;background:var(--canvas,#edf3f1);color:var(--ink,#142f32);font:1rem system-ui}.ds-input:focus-visible{outline:2px solid var(--focus,#126b5b);outline-offset:3px}"
+    },
+    {
+      "name": "Pilihan navigasi",
+      "kind": "nav",
+      "description": "Tab aktif memakai bidang mint, bukan dekorasi tambahan.",
+      "html": "<nav aria-label=\"Navigasi utama\"><button class=\"ds-nav\" aria-current=\"page\" type=\"button\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" aria-hidden=\"true\"><path d=\"m3 10 9-7 9 7v10H3zM9 20v-7h6v7\"/></svg> Beranda</button></nav>",
+      "css": ".ds-nav{display:inline-flex;gap:.75rem;align-items:center;min-height:2.875rem;padding:.5rem .75rem;border:0;border-radius:.5rem;background:var(--accent-wash,#d9ede5);color:var(--accent,#146356);font:620 .875rem system-ui;cursor:pointer}.ds-nav:focus-visible{outline:2px solid var(--focus,#126b5b);outline-offset:3px}"
+    },
+    {
+      "name": "Panel info",
+      "kind": "card",
+      "refersTo": "panel",
+      "description": "Kelompok terkait dengan bidang dan garis, tanpa bayangan.",
+      "html": "<section class=\"ds-panel\"><h2>Rilis terjemahan</h2><p>Untuk versi game 3.7.x</p></section>",
+      "css": ".ds-panel{padding:1.5rem;border:1px solid var(--line,#cadbd5);border-radius:.875rem;background:var(--surface,#fbfdfa);color:var(--ink,#142f32);font:1rem system-ui}.ds-panel h2{margin:0;font-size:1.0625rem}.ds-panel p{margin:.5rem 0 0;color:var(--muted,#4c6362);font-size:.875rem}"
+    }
+  ]
+}

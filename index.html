@@ -2,12 +2,12 @@
 <html lang="id">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta
       name="description"
       content="Terjemahan Bahasa Indonesia untuk Wuthering Waves."
     />
-    <meta name="theme-color" content="#f6f7fa" />
+    <meta name="theme-color" content="#fbfdfa" />
     <script>
       // Resolve before CSS paints; storage may be unavailable in a WebView.
       (() => {
@@ -22,11 +22,12 @@
         document.documentElement.dataset.theme = theme;
         document.documentElement.dataset.themePreference = preference;
         document.querySelector('meta[name="theme-color"]').content =
-          theme === "dark" ? "#14141b" : "#f6f7fa";
+          theme === "dark" ? "#122529" : "#fbfdfa";
       })();
     </script>
+    <link rel="icon" href="/src-tauri/icons/32x32.png" />
     <link rel="stylesheet" href="/src/styles.css" />
-    <title>WuwaIDMobile</title>
+    <title>WuwaID Mobile</title>
     <script type="module" src="/src/main.ts" defer></script>
   </head>
 
@@ -35,14 +36,12 @@
     <div id="app"></div>
     <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
     <dialog id="confirm-dialog" aria-labelledby="dialog-title" aria-describedby="dialog-description">
-      <div class="dialog-icon" aria-hidden="true">!</div>
+      <svg class="dialog-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7"/></svg>
       <h2 id="dialog-title">Hapus terjemahan?</h2>
-      <p id="dialog-description">Terjemahan simulasi dihapus dan UID direset. File game tidak diubah.</p>
+      <p id="dialog-description">File asli game tetap utuh.</p>
       <div class="actions">
-        <button class="btn btn-secondary" id="cancel-uninstall">Batal</button>
-        <button class="btn btn-danger" id="confirm-uninstall">
-          Hapus
-        </button>
+        <button class="btn btn-secondary" type="button" id="cancel-uninstall" autofocus>Batal</button>
+        <button class="btn btn-danger" type="button" id="confirm-uninstall">Hapus terjemahan</button>
       </div>
     </dialog>
   </body>

@@ -26,8 +26,8 @@ Jangan commit kredensial signing, `local.properties`, keluaran build, atau `node
 ## Arsitektur dan UI
 
 - `src/model.ts` mendefinisikan state; UI di `src/main.ts` memanggil wrapper `src/ipc.ts`. Orkestrasi native ada di `src-tauri/src/native.rs`, installer/downloader di `src-tauri/src/pak/`, dan bridge Android di `src-tauri/src/android.rs`.
-- Navigasi horizontal di desktop dan dock bawah di Android. Tema Terang/Gelap/Sistem disimpan lokal; perubahan tema tidak menghapus draft atau menghentikan operasi. Progres tidak membangun ulang navigasi; animasi 140–180 ms mengikuti `prefers-reduced-motion`.
-- Browser adalah simulasi, bukan bukti akses privileged atau hasil game. Ada 14 skenario: siap, terpasang, game tidak ditemukan, versi tidak didukung, resource belum siap, Shizuku mati/menunggu izin, Root menunggu izin/siap tanpa Shizuku, AxManager mati/menunggu izin/siap tanpa Shizuku, recovery, dan instalasi sebelum Tauri.
+- Navigasi di rel kiri pada desktop dan di dock bawah pada ponsel. Tema Terang/Gelap/Sistem disimpan lokal; perubahan tema tidak menghapus draf atau menghentikan operasi. Progres tidak membangun ulang navigasi. Lihat [sistem desain](DESIGN.md) untuk token dan pola UI.
+- Browser adalah simulasi, bukan bukti akses privileged atau hasil game. Ubah salah satu dari 16 skenario lewat **Perawatan → Skenario simulasi**.
 - State browser memakai `wuwaidmobile.mock-state.v6`; memilih skenario mereset data contoh dan UID. UID `900123456`, versi `3.7.0`, dan konten `3.7.0-R2` hanyalah contoh. Desktop native menyediakan metadata rilis tetapi tidak menulis game; status game ditandai `not_checked`.
 
 ### Skill frontend (opsional)

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Frontend redesign:** put the next translation action and separate game, access, and file checks on Home. Rebuild the UID and Maintenance screens, theme controls, and responsive navigation. Preserve native permission and installation gates.
+
 ## 1.0.1
 
 - **AxManager 3:** migrate to Axeron 3 and launch the guarded storage service through the official `libaxsh.so`. Requires AxManager app and server 3.0.0+; AxManager 2.x is no longer supported. Shizuku and Root remain available.

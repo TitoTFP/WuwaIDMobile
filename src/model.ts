@@ -188,27 +188,29 @@ export function accessReadiness(d: Dashboard): { ready: boolean; label: string; 
   if (d.checks.bootstrap.status !== "ready")
     return { ready: false, label: checkLabel(d.checks.bootstrap), detail: d.checks.bootstrap.error ?? "Memuat informasi perangkat." };
   if (!d.platformSupported)
-    return { ready: false, label: "Perlu Android", detail: "Akses file game hanya tersedia di Android." };
+    return { ready: false, label: "Perlu Android", detail: "Akses file game hanya tersedia di aplikasi Android." };
   if (d.checks.access.status !== "ready")
-    return { ready: false, label: checkLabel(d.checks.access), detail: d.checks.access.error ?? "Status akses belum tersedia." };
+    return { ready: false, label: d.checks.access.status === "error" ? "Gagal memeriksa akses" : checkLabel(d.checks.access), detail: d.checks.access.error ?? "" };
   if (d.access.method === "axmanager") {
     if (!d.axmanager.installed)
-      return { ready: false, label: "AxManager belum ditemukan", detail: "Pasang AxManager 3.0.0+." };
+      return { ready: false, label: "AxManager belum terpasang", detail: "Unduh AxManager, lalu aktifkan servernya." };
     if (!d.axmanager.supported)
-      return { ready: false, label: "AxManager belum didukung", detail: "Perlu Android 8+, profil utama perangkat, dan aplikasi serta server AxManager 3.0.0+." };
+      return { ready: false, label: "AxManager belum didukung", detail: "Perlu Android 8+, profil utama, serta aplikasi dan server AxManager 3.0.0+." };
     if (!d.access.granted || !d.axmanager.running)
-      return { ready: false, label: "AxManager belum terhubung", detail: "Aktifkan server, lalu hubungkan di Akses game." };
+      return { ready: false, label: "AxManager belum terhubung", detail: "Pastikan server aktif, lalu pilih Hubungkan." };
   } else if (d.access.method === "shizuku") {
     if (!d.shizuku.installed)
-      return { ready: false, label: "Shizuku belum terpasang", detail: "Pasang Shizuku melalui Akses game." };
+      return { ready: false, label: "Shizuku belum terpasang", detail: "Unduh Shizuku, lalu aktifkan layanannya." };
     if (!d.shizuku.running)
-      return { ready: false, label: "Shizuku belum aktif", detail: "Aktifkan layanan di Shizuku, lalu kembali." };
+      return { ready: false, label: "Shizuku belum aktif", detail: "Buka Shizuku dan aktifkan layanannya." };
     if (!d.access.granted)
-      return { ready: false, label: d.shizuku.granted ? "Shizuku belum terhubung" : "Izin Shizuku diperlukan", detail: d.shizuku.granted ? "Hubungkan Shizuku di Akses game." : "Berikan izin Shizuku di Akses game." };
+      return d.shizuku.granted
+        ? { ready: false, label: "Shizuku belum terhubung", detail: "Izin sudah tersedia. Pilih Hubungkan Shizuku." }
+        : { ready: false, label: "Izin Shizuku diperlukan", detail: "Pilih Izinkan Shizuku, lalu setujui permintaan izin." };
   } else if (!d.access.granted) {
-    return { ready: false, label: "Root belum terhubung", detail: "Izinkan root di Akses game, atau pilih metode lain." };
+    return { ready: false, label: "Izin root diperlukan", detail: "Berikan izin di pengelola root, atau pilih metode lain." };
   }
-  return { ready: true, label: "Terhubung", detail: `Akses ${ACCESS_LABELS[d.access.method]} tersedia.` };
+  return { ready: true, label: "Terhubung", detail: "" };
 }
 
 export function readiness(d: Dashboard): {
@@ -217,33 +219,42 @@ export function readiness(d: Dashboard): {
   detail: string;
 } {
   if (d.checks.bootstrap.status !== "ready")
-    return { ready: false, label: checkLabel(d.checks.bootstrap), detail: d.checks.bootstrap.error ?? "Memuat informasi perangkat." };
+    return { ready: false, label: d.checks.bootstrap.status === "error" ? "Gagal memuat perangkat" : "Mengenali perangkat…", detail: d.checks.bootstrap.error ?? "" };
   if (!d.platformSupported)
     return {
       ready: false,
       label: "Perlu Android",
-      detail:
-        d.blocker ??
-        "Gunakan Android dengan AxManager, Shizuku, atau Root.",
+      detail: d.blocker ?? "Pemasangan terjemahan dan perubahan UID hanya tersedia di aplikasi Android.",
     };
   if (!d.game.installed)
     return {
       ready: false,
-      label: "Game belum ditemukan",
-      detail: "Pasang versi Global atau Galaxy Store, lalu periksa ulang.",
+      label: "Game belum terpasang",
+      detail: "Pasang Wuthering Waves versi Global atau Galaxy Store.",
     };
   const access = accessReadiness(d);
   if (!access.ready) return access;
-  if (d.checks.storage.status !== "ready")
-    return { ready: false, label: `Resource: ${checkLabel(d.checks.storage).toLowerCase()}`, detail: d.checks.storage.error ?? "Pilih Periksa resource untuk memuat status patch." };
+  if (d.checks.storage.status !== "ready") {
+    const storage = d.checks.storage;
+    return {
+      ready: false,
+      label: storage.status === "loading" ? "Memeriksa file game…" : storage.status === "error"
+        ? "Gagal memeriksa file game" : "File game belum diperiksa",
+      detail: storage.error ?? "",
+    };
+  }
   if (d.resource.ready && (d.patch.legacyPending || d.patch.recoveryPending))
     return {
       ready: false,
       label: d.patch.recoveryPending ? "Perlu pemulihan" : "Pemasangan versi lama",
-      detail: d.patch.message ?? "Buka Perawatan untuk migrasi atau pemulihan tanpa unduhan.",
+      detail: d.patch.message ?? (d.patch.recoveryPending ? "Ada transaksi pemasangan yang belum selesai." : "Migrasikan berkas yang sudah ada tanpa mengunduh ulang."),
     };
   if (d.checks.release.status !== "ready")
-    return { ready: false, label: `Rilis: ${checkLabel(d.checks.release).toLowerCase()}`, detail: d.checks.release.error ?? "Metadata rilis dimuat terpisah." };
+    return {
+      ready: false,
+      label: d.checks.release.status === "error" ? "Gagal memuat rilis" : "Memuat rilis terjemahan…",
+      detail: d.checks.release.error ?? "",
+    };
   if (
     d.mode === "native" &&
     d.access.granted &&
@@ -267,10 +278,8 @@ export function readiness(d: Dashboard): {
   if (!d.resource.ready || !compatibleGameVersion(d, d.resource.version))
     return {
       ready: false,
-      label: "Resource belum siap",
-      detail:
-        d.blocker ??
-        "Selesaikan unduhan resource di game, lalu periksa ulang.",
+      label: "File game belum siap",
+      detail: d.blocker ?? "Selesaikan unduhan resource di game, termasuk bahasa Inggris. Lalu periksa ulang.",
     };
   if (d.blocker || !d.storageWritable)
     return {
@@ -283,12 +292,11 @@ export function readiness(d: Dashboard): {
     return {
       ready: false,
       label: "Perlu pemulihan",
-      detail: "Jalankan Perbaiki di Perawatan.",
+      detail: "Perbaiki pemasangan untuk memulihkan berkas terjemahan.",
     };
   return {
     ready: true,
     label: d.patch.installed ? "Terjemahan terpasang" : "Siap dipasang",
-    detail:
-      `Game, ${ACCESS_LABELS[d.access.method]}, dan resource siap.`,
+    detail: "",
   };
 }

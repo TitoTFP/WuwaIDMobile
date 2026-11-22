@@ -234,7 +234,7 @@ describe("maintenance transitions", () => {
       expect(action(name).disabled).toBe(true);
     expect(document.querySelector("#access-setup")).toBeNull();
     document.body.innerHTML = renderAccess(state(d, "draft", true));
-    for (const name of ["request_root", "use_root", "use_shizuku", "use_axmanager", "refresh"])
+    for (const name of ["request_root", "use_root", "use_shizuku", "use_axmanager", "check-access"])
       expect(action(name).disabled).toBe(true);
   });
   it.each([false, true])("offers setup and explicit alternatives without granting unavailable AxManager (installed=%s)", (installed) => {
@@ -291,7 +291,7 @@ describe("access setup", () => {
     document.body.innerHTML = renderAccess(state(d));
     expect(action("request_permission").disabled).toBe(false);
     document.body.innerHTML = renderAccess(state(d, "", true));
-    for (const name of ["setup-shizuku", "request_permission", "use_root", "use_axmanager", "refresh"])
+    for (const name of ["setup-shizuku", "request_permission", "use_root", "use_axmanager", "check-access"])
       expect(action(name).disabled).toBe(true);
   });
 
@@ -316,7 +316,7 @@ describe("access setup", () => {
     d.access.granted = true;
     document.body.innerHTML = renderAccess(state(d));
     expect(document.querySelector(".status-badge.good")).not.toBeNull();
-    expect(action("request_axmanager").disabled).toBe(true);
+    expect(action("request_axmanager")).toBeNull();
   });
 
   it("keeps an already-authorized Shizuku session disconnected until an explicit connection action", () => {
@@ -329,7 +329,7 @@ describe("access setup", () => {
     d.access.granted = true;
     document.body.innerHTML = renderAccess(state(d));
     expect(document.querySelector(".status-badge.good")).not.toBeNull();
-    expect(action("request_permission").disabled).toBe(true);
+    expect(action("request_permission")).toBeNull();
   });
 
   it("keeps permission waits indeterminate but exposes real file-operation progress", () => {

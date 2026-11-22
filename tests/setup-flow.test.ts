@@ -44,6 +44,9 @@ function click(selector: string): void {
   expect(button).not.toBeNull();
   button!.click();
 }
+function go(section: "home" | "customize" | "tools"): void {
+  click(`nav[aria-label="Navigasi utama"] [data-section="${section}"]`);
+}
 async function idle(): Promise<void> {
   await vi.waitFor(() => {
     expect(document.querySelector(".progress-card")).toBeNull();
@@ -112,12 +115,12 @@ it("renders navigation immediately and keeps release, bootstrap, and passive acc
   backend.release.mockReturnValueOnce(remote.promise);
   backend.accessStatus.mockReturnValueOnce(permission.promise);
   await mount();
-  expect(document.querySelector(".mobile-nav")).not.toBeNull();
-  expect(document.querySelector<HTMLButtonElement>('.device-card [data-action="refresh"]')!.disabled).toBe(true);
+  expect(document.querySelector('nav[aria-label="Navigasi utama"] [aria-current="page"]')?.textContent).toBe("Beranda");
+  expect(document.querySelector('[data-action="refresh"]')).toBeNull();
   expect(document.querySelector('[data-action="setup-axmanager"]')).toBeNull();
-  click('.mobile-nav [data-section="tools"]');
+  go("tools");
   expect(document.querySelector(".page-heading")?.textContent).toContain("Perawatan");
-  click('.mobile-nav [data-section="home"]');
+  go("home");
   expect(backend.inspect).not.toHaveBeenCalled();
   expect(backend.run).not.toHaveBeenCalled();
   local.resolve(bootstrap());
@@ -127,7 +130,6 @@ it("renders navigation immediately and keeps release, bootstrap, and passive acc
   permission.resolve(access());
   await idle();
   expect(document.querySelector<HTMLButtonElement>('.package-actions [data-action="refresh"]')!.disabled).toBe(false);
-  expect(document.querySelector<HTMLButtonElement>('.device-card [data-action="refresh"]')!.disabled).toBe(false);
   expect(backend.beginBusy).not.toHaveBeenCalled();
   expect(backend.inspect).not.toHaveBeenCalled();
   remote.reject(new Error("GitHub offline"));
@@ -146,26 +148,26 @@ it("inspects only on demand, preserves edited UID drafts, and keeps offline remo
   await mount();
   await idle();
   expect(backend.inspect).not.toHaveBeenCalled();
-  click('.mobile-nav [data-section="customize"]');
+  go("customize");
   await vi.waitFor(() => expect(backend.inspect).toHaveBeenCalledTimes(1));
-  click('.mobile-nav [data-section="home"]');
+  go("home");
   scan.resolve(inspection());
   remote.reject(new Error("Release unavailable"));
   await idle();
-  click('.mobile-nav [data-section="tools"]');
+  go("tools");
   expect(document.querySelector<HTMLButtonElement>('[data-action="uninstall"]')!.disabled).toBe(false);
   expect(document.querySelector<HTMLButtonElement>('[data-action="repair"]')!.disabled).toBe(true);
   expect(backend.inspect).toHaveBeenCalledTimes(1);
-  click('.mobile-nav [data-section="customize"]');
+  go("customize");
   const input = document.querySelector<HTMLInputElement>("#uid-input")!;
   input.value = "My draft";
   input.dispatchEvent(new Event("input", { bubbles: true }));
-  click('.mobile-nav [data-section="home"]');
+  go("home");
   const rescan = Promise.withResolvers<InspectionSnapshot>();
   backend.inspect.mockReturnValueOnce(rescan.promise);
-  click('#access-setup [data-action="refresh"]');
+  click('[aria-label="Periksa ulang perangkat"]');
   await vi.waitFor(() => expect(backend.inspect).toHaveBeenCalledTimes(2));
-  click('.mobile-nav [data-section="customize"]');
+  go("customize");
   truth.uid.custom = "Changed outside";
   rescan.resolve(inspection());
   await vi.waitFor(() => expect(document.querySelector<HTMLInputElement>("#uid-input")?.disabled).toBe(false));
@@ -177,20 +179,25 @@ it("inspects only on demand, preserves edited UID drafts, and keeps offline remo
 it("keeps failed inspections unknown, blocks stale mutations, and retries only explicitly", async () => {
   truth.patch = { ...truth.patch, installed: true, healthy: true, version: "3.7.0-R2" };
   truth.uid.custom = "Checked UID";
+  truth.access = { method: "shizuku", granted: true };
+  truth.shizuku = { installed: true, running: true, granted: true };
   await mount();
   await idle();
-  click('.mobile-nav [data-section="tools"]');
+  go("tools");
   await vi.waitFor(() => expect(document.querySelector<HTMLButtonElement>('[data-action="uninstall"]')?.disabled).toBe(false));
-  click('.mobile-nav [data-section="home"]');
+  go("home");
   backend.inspect.mockRejectedValueOnce(new Error("Storage unavailable"));
-  click('#access-setup [data-action="refresh"]');
+  click('[aria-label="Periksa ulang perangkat"]');
   await vi.waitFor(() => expect(document.querySelector(".error-banner")?.textContent).toContain("Storage unavailable"));
   await idle();
-  expect(document.querySelector(".device-row:last-child .device-check.pending")).not.toBeNull();
-  click('.mobile-nav [data-section="tools"]');
+  expect(document.querySelector('[aria-label="Metode akses"] + .access-details')?.textContent).toContain("Terhubung");
+  const failedStep = document.querySelector('[aria-current="step"]')?.textContent;
+  expect(failedStep).toContain("File game");
+  expect(failedStep).toContain("Gagal diperiksa");
+  go("tools");
   expect(document.querySelector<HTMLButtonElement>('[data-action="uninstall"]')!.disabled).toBe(true);
   expect(document.querySelector<HTMLButtonElement>('[data-action="repair"]')!.disabled).toBe(true);
-  click('.mobile-nav [data-section="customize"]');
+  go("customize");
   expect(document.querySelector<HTMLButtonElement>("#apply-uid")!.disabled).toBe(true);
   expect(document.querySelector("#uid-active")!.textContent).not.toContain("Checked UID");
   expect(document.querySelector<HTMLInputElement>("#uid-input")!.value).toBe("Checked UID");
@@ -198,7 +205,7 @@ it("keeps failed inspections unknown, blocks stale mutations, and retries only e
   click('[data-action="refresh"]');
   await vi.waitFor(() => expect(document.querySelector<HTMLButtonElement>('[data-action="refresh"]')).toBeNull());
   expect(backend.inspect).toHaveBeenCalledTimes(3);
-  click('.mobile-nav [data-section="tools"]');
+  go("tools");
   expect(document.querySelector<HTMLButtonElement>('[data-action="uninstall"]')!.disabled).toBe(false);
   expect(backend.run).not.toHaveBeenCalled();
 });
@@ -212,24 +219,24 @@ it("coalesces navigation during busy tracing and timestamps only completed stora
   const scan = Promise.withResolvers<InspectionSnapshot>();
   backend.beginBusy.mockReturnValueOnce(trace.promise);
   backend.inspect.mockReturnValueOnce(scan.promise);
-  click('.mobile-nav [data-section="tools"]');
+  go("tools");
   const inspectedRow = Array.from(document.querySelectorAll(".technical-details .info-row"))
     .find((row) => row.querySelector("dt")?.textContent === "Diperiksa")!;
   expect(inspectedRow.querySelector("dd")!.textContent).toBe("—");
-  click('.mobile-nav [data-section="customize"]');
+  go("customize");
   trace.resolve();
   await vi.waitFor(() => expect(backend.inspect).toHaveBeenCalledTimes(1));
   scan.resolve(inspection());
   await vi.waitFor(() => expect(document.querySelector<HTMLInputElement>("#uid-input")?.disabled).toBe(false));
   expect(backend.inspect).toHaveBeenCalledTimes(1);
-  click('.mobile-nav [data-section="home"]');
+  go("home");
   expect(document.querySelector<HTMLButtonElement>('.package-actions [data-action="release"]')!.disabled).toBe(true);
   remote.resolve({ ...truth.release! });
   await vi.waitFor(() => expect(document.querySelector<HTMLButtonElement>('.package-actions [data-action="install"]')?.disabled).toBe(false));
-  click('.mobile-nav [data-section="tools"]');
+  go("tools");
   const checkedAt = Array.from(document.querySelectorAll(".technical-details .info-row"))
     .find((row) => row.querySelector("dt")?.textContent === "Diperiksa")!.querySelector("dd")!.textContent;
-  click('.mobile-nav [data-section="home"]');
+  go("home");
   click('[data-action="setup-axmanager"]');
   await vi.waitFor(() => expect(backend.openSetup).toHaveBeenCalledTimes(1));
   await idle();
@@ -238,7 +245,7 @@ it("coalesces navigation during busy tracing and timestamps only completed stora
   back();
   await vi.waitFor(() => expect(backend.accessStatus).toHaveBeenCalledTimes(2));
   await idle();
-  click('.mobile-nav [data-section="tools"]');
+  go("tools");
   expect(Array.from(document.querySelectorAll(".technical-details .info-row"))
     .find((row) => row.querySelector("dt")?.textContent === "Diperiksa")!.querySelector("dd")!.textContent).toBe(checkedAt);
   expect(backend.inspect).toHaveBeenCalledTimes(1);
@@ -306,6 +313,9 @@ it("coalesces passive returns behind operations and updates without scanning or 
   await vi.waitFor(() => expect(document.body.textContent).toContain("Status unavailable"));
   back();
   expect(backend.accessStatus).toHaveBeenCalledTimes(5);
+  click('#access-setup [data-action="check-access"]');
+  await vi.waitFor(() => expect(backend.accessStatus).toHaveBeenCalledTimes(6));
+  await idle();
   expect(backend.inspect).not.toHaveBeenCalled();
   expect(backend.run).toHaveBeenCalledTimes(1);
 });
@@ -325,7 +335,7 @@ it("retries bootstrap independently and keeps provider switches silent and guard
   expect(document.querySelector(".progress-card")).toBeNull();
   expect(document.querySelector("#access-setup")?.getAttribute("aria-busy")).toBe("true");
   expect(document.activeElement?.classList.contains("access-methods")).toBe(true);
-  for (const action of ["use_root", "use_shizuku", "use_axmanager", "refresh"])
+  for (const action of ["use_root", "use_shizuku", "use_axmanager", "check-access"])
     expect(document.querySelector<HTMLButtonElement>(`#access-setup [data-action="${action}"]`)!.disabled).toBe(true);
   click('[data-action="use_axmanager"]');
   expect(backend.run).toHaveBeenCalledTimes(1);
@@ -341,7 +351,7 @@ it("retries bootstrap independently and keeps provider switches silent and guard
   await idle();
   expect(backend.accessStatus).toHaveBeenCalledTimes(2);
   expect(document.querySelector('[data-action="use_root"]')?.getAttribute("aria-pressed")).toBe("true");
-  click('.mobile-nav [data-section="tools"]');
+  go("tools");
   expect(document.querySelector("#access-setup")).toBeNull();
   click('[data-action="access-setup"]');
   await vi.waitFor(() => expect(document.activeElement?.id).toBe("access-setup"));
