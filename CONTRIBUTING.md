@@ -30,6 +30,15 @@ Jangan commit kredensial signing, `local.properties`, keluaran build, atau `node
 - Browser adalah simulasi, bukan bukti akses privileged atau hasil game. Ada 14 skenario: siap, terpasang, game tidak ditemukan, versi tidak didukung, resource belum siap, Shizuku mati/menunggu izin, Root menunggu izin/siap tanpa Shizuku, AxManager mati/menunggu izin/siap tanpa Shizuku, recovery, dan instalasi sebelum Tauri.
 - State browser memakai `wuwaidmobile.mock-state.v6`; memilih skenario mereset data contoh dan UID. UID `900123456`, versi `3.7.0`, dan konten `3.7.0-R2` hanyalah contoh. Desktop native menyediakan metadata rilis tetapi tidak menulis game; status game ditandai `not_checked`.
 
+### Skill frontend (opsional)
+
+Skill proyek tersedia di `.agents/skills/`. Di OMP, jalankan `/reload-plugins` (atau buka sesi baru), lalu cek tab Skills di `/extensions`.
+
+- `/skill:impeccable clarify pesan akses file` — poles UI yang ada, terutama hierarki, kepadatan, dan teks bantuan. [Upstream `b49177d`](https://github.com/pbakaus/impeccable/tree/b49177d32788f2dc585c42831d845dacf1ebed2c/.agents/skills/impeccable).
+- `/skill:frontend-design rancang ulang onboarding` — tentukan arah visual untuk layar baru atau perombakan besar. [Upstream `e4bb5d9`](https://github.com/anthropics/skills/tree/e4bb5d960d87126ff3b3a8af1a104b7db67560ba/skills/frontend-design).
+
+Skill tidak mengubah build aplikasi. Hook dan live mode tidak dikonfigurasi. Launcher Impeccable dapat mengunduh engine terpin ke cache pengguna saat pertama dipakai dan memeriksa SHA-256 unduhan.
+
 ## Kontrak IPC
 
 `src/ipc.ts` membuat correlation ID; caller tidak perlu membuatnya sendiri. Jangan memanggil command native ad hoc dari UI.
