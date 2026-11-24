@@ -11,6 +11,15 @@ import java.security.MessageDigest
 import org.json.JSONArray
 import org.json.JSONObject
 
+internal fun selectOwner(candidates: Iterable<Pair<Int, Int>>): Pair<Int, Int>? {
+  var fallback: Pair<Int, Int>? = null
+  for (owner in candidates) {
+    if (fallback == null) fallback = owner
+    if (owner.first != 0) return owner
+  }
+  return fallback
+}
+
 // Constructed only in the privileged storage service, never in the application process.
 internal class ResourceFiles(private val gameFiles: File) {
   private var hashBuffer: ByteArray? = null
@@ -181,7 +190,81 @@ internal class ResourceFiles(private val gameFiles: File) {
     return String(output)
   }
 
+  fun applyOwnership(relative: String, isDirectory: Boolean) {
+    val root = root()
+    val target = checked(root, relative)
+    val owner = resolveOwner(root, relative)
+    val callerUid = Os.getuid()
+    if (!isDirectory) {
+      val parent = target.parentFile
+      if (parent != null && (parent.name == "wuwaid" || parent.name == "wuwaindonesia")) {
+        applyEntryMetadata(parent, expectedIsDir = true, owner.first, owner.second, callerUid)
+      }
+    }
+    applyEntryMetadata(target, expectedIsDir = isDirectory, owner.first, owner.second, callerUid)
+  }
+
+  private fun resolveOwner(root: File, relative: String): Pair<Int, Int> {
+    val version = relative.substringBefore('/', "")
+    val candidates = buildList {
+      if (version.isNotEmpty()) add(File(root, version))
+      add(root)
+      add(gameFiles)
+      gameFiles.parentFile?.let(::add)
+    }.mapNotNull { dir ->
+      val stat = lstat(dir)
+      if (stat != null && OsConstants.S_ISDIR(stat.st_mode)) stat.st_uid to stat.st_gid else null
+    }
+    return selectOwner(candidates) ?: throw IllegalStateException("Resource owner directory is unavailable")
+  }
+
+  private fun applyEntryMetadata(file: File, expectedIsDir: Boolean, uid: Int, gid: Int, callerUid: Int) {
+    val before = lstat(file) ?: throw IllegalStateException("Resource target is missing")
+    val actualIsDir = OsConstants.S_ISDIR(before.st_mode)
+    require(actualIsDir == expectedIsDir && (actualIsDir || OsConstants.S_ISREG(before.st_mode))) {
+      "Resource target has an unexpected file type"
+    }
+    val mode = if (expectedIsDir) DIR_MODE else FILE_MODE
+    val flags = OsConstants.O_RDONLY or OsConstants.O_NOFOLLOW or OsConstants.O_NONBLOCK
+    val fd = Os.open(file.path, flags, 0)
+    try {
+      val opened = Os.fstat(fd)
+      require(
+        opened.st_dev == before.st_dev && opened.st_ino == before.st_ino &&
+          OsConstants.S_ISDIR(opened.st_mode) == expectedIsDir
+      ) {
+        "Resource target changed while updating permissions"
+      }
+      var currentUid = opened.st_uid
+      if (callerUid == 0 && (opened.st_uid != uid || opened.st_gid != gid)) {
+        try {
+          Os.fchown(fd, uid, gid)
+          currentUid = uid
+        } catch (error: ErrnoException) {
+          val toleratesError = error.errno == OsConstants.ENOSYS ||
+            error.errno == OsConstants.EOPNOTSUPP ||
+            (error.errno == OsConstants.EPERM && opened.st_uid != 0)
+          if (!toleratesError) throw error
+        }
+      }
+      if ((callerUid == 0 || currentUid == callerUid) && (opened.st_mode and 0x1ff) != mode) {
+        try {
+          Os.fchmod(fd, mode)
+        } catch (error: ErrnoException) {
+          val toleratesError = error.errno == OsConstants.ENOSYS ||
+            error.errno == OsConstants.EOPNOTSUPP ||
+            (error.errno == OsConstants.EPERM && (callerUid != 0 || currentUid != 0 || uid == 0))
+          if (!toleratesError) throw error
+        }
+      }
+    } finally {
+      Os.close(fd)
+    }
+  }
+
   companion object {
     private const val LIMIT = 256 * 1024
+    private const val DIR_MODE = 493 // 0755
+    private const val FILE_MODE = 420 // 0644
   }
 }

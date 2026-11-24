@@ -154,6 +154,13 @@ class StorageUserService : IStorageUserService.Stub() {
       if (stderrBytes.size > MAX_ERROR_BYTES) {
         return failure("Storage error output exceeded its limit")
       }
+      if (exitCode == 0) {
+        when (operation) {
+          "mkdir" -> files.applyOwnership(requireNotNull(first), isDirectory = true)
+          "write" -> files.applyOwnership(requireNotNull(first), isDirectory = false)
+          "copy", "move_file" -> files.applyOwnership(requireNotNull(second), isDirectory = false)
+        }
+      }
       Bundle().apply {
         putInt(KEY_EXIT_CODE, exitCode)
         putByteArray(KEY_STDOUT, stdoutBytes)
