@@ -313,7 +313,7 @@ Tujuh APK publik v0.1.0–v0.3.4 memakai package `com.titotfp.wuwaid`, versionCo
 2cb1b4fed5446cf52018b5d56d58c379d7328022c1ba17278c19c0002e484df9
 ```
 
-Rilis stabil `1.0.0` memakai versionCode `9`. Kandidat `1.0.1` memakai versionCode `10` dan package serta sertifikat yang sama. Samakan versi Tauri, Cargo, dan npm beserta lockfile. Untuk release berikutnya, naikkan `bundle.android.versionCode` dari code publik terakhir. Jangan memakai `adb install -d` sebagai bukti upgrade normal.
+Rilis stabil `1.0.1` memakai versionCode `10`. Kandidat `1.1.0` memakai versionCode `11` dan package serta sertifikat yang sama. Samakan versi Tauri, Cargo, dan npm beserta lockfile. Untuk release berikutnya, naikkan `bundle.android.versionCode` dari code publik terakhir. Jangan memakai `adb install -d` sebagai bukti upgrade normal.
 
 Gunakan private keystore rilis asli. Sediakan dari secret store lokal/CI, bukan Git/chat:
 
@@ -332,21 +332,21 @@ Workflow release dipicu manual pada tag yang sudah ada; pilih tag yang sama seba
 
 Setelah QA, publikasikan sebagai rilis stabil (`draft: false`, `prerelease: false`) agar tersedia di updater. Sertakan tepat satu aset `WuwaID-Mobile-v<versi>.apk` dan `SHA256sums.txt`. Updater menerima SHA-256 dari GitHub digest atau checksum tersebut.
 
-### Kandidat dan publikasi v1.0.1
+### Kandidat dan publikasi v1.1.0
 
-1. Commit dan push source yang sudah ditinjau. Buat dan push tag `v1.0.1` pada commit yang sama; jangan pindahkan tag setelah QA.
+1. Commit dan push source yang sudah ditinjau. Buat dan push tag `v1.1.0` pada commit yang sama; jangan pindahkan tag setelah QA.
 2. Bangun kandidat signed tanpa memublikasikan release:
 
    ```sh
-   gh workflow run release.yml --ref v1.0.1 -f tag=v1.0.1 -F upgrade_qa_completed=false
+   gh workflow run release.yml --ref v1.1.0 -f tag=v1.1.0 -F upgrade_qa_completed=false
    ```
 
-3. Ambil artifact `wuwaidmobile-signed-v1.0.1`. Catat **ID artifact** dari ringkasan run atau URL artifact; ini bukan ID run. Verifikasi APK `com.titotfp.wuwaid`, versi `1.0.1`, code `10`, sertifikat di atas, dan checksum. Jalankan [QA upgrade/updater](#qa-updater-wajib) dari APK publik `1.0.0` tanpa uninstall/clear data. APK debug bukan bukti upgrade in-place.
+3. Ambil artifact `wuwaidmobile-signed-v1.1.0`. Catat **ID artifact** dari ringkasan run atau URL artifact; ini bukan ID run. Verifikasi APK `com.titotfp.wuwaid`, versi `1.1.0`, code `11`, sertifikat di atas, dan checksum. Jalankan [QA upgrade/updater](#qa-updater-wajib) dari APK publik `1.0.1` tanpa uninstall/clear data. APK debug bukan bukti upgrade in-place.
 4. Setelah artifact tersebut lulus QA, publikasikan APK yang sama:
 
    ```bash
    read -r -p "ID artifact signed yang lolos QA: " CANDIDATE_ARTIFACT_ID
-   gh workflow run release.yml --ref v1.0.1 -f tag=v1.0.1 -F upgrade_qa_completed=true -f candidate_artifact_id="$CANDIDATE_ARTIFACT_ID"
+   gh workflow run release.yml --ref v1.1.0 -f tag=v1.1.0 -F upgrade_qa_completed=true -f candidate_artifact_id="$CANDIDATE_ARTIFACT_ID"
    ```
 
 5. Pastikan GitHub Release bukan draft/prerelease, menjadi stable terbaru, dan memuat APK serta checksum yang sama dengan hasil QA. Artifact kedaluwarsa atau salah asal/commit harus ditolak; buat dan uji kandidat baru, bukan membangun ulang diam-diam saat publikasi. Jangan memakai checkbox QA untuk melewati kegagalan upgrade, installer, atau hasil game.
@@ -355,7 +355,7 @@ Setelah QA, publikasikan sebagai rilis stabil (`draft: false`, `prerelease: fals
 
 1. Mulai dari APK publik lama; pasang kandidat dengan `adb install -r`, tanpa uninstall/clear data. Uji deteksi, migrasi, recovery, UID, dan game; pastikan mount/signature benar dan hash berkas game bawaan tidak berubah sebelum/sesudah. APK debug hanya menguji migrasi berkas; package berbeda tidak menguji PackageManager/data upgrade in-place.
 2. Periksa banner, versi terpasang, dan tombol manual. Jika tidak ada stable yang lebih baru (termasuk hanya ada prerelease), UI harus menyatakan belum ada update stabil, bukan bahwa versi terpasang terbaru.
-3. Sebelum publikasi, uji upgrade `1.0.0`/code 9 → kandidat signed `1.0.1`/code 10 melalui `adb install -r`. Updater produksi hanya bisa menawarkan versi baru setelah rilis stabil resmi tersedia; jalankan smoke test unduh/pasang dari `1.0.0` setelah publikasi. Jangan gunakan metadata palsu atau menurunkan versionCode.
+3. Sebelum publikasi, uji upgrade `1.0.1`/code 10 → kandidat signed `1.1.0`/code 11 melalui `adb install -r`. Updater produksi hanya bisa menawarkan versi baru setelah rilis stabil resmi tersedia; jalankan smoke test unduh/pasang dari `1.0.1` setelah publikasi. Jangan gunakan metadata palsu atau menurunkan versionCode.
 4. Uji perbandingan versi numerik (`0.4.9` → `0.4.10`), progres, ukuran/digest, dan penolakan APK dengan package, signing/tag, versionCode, minSdk, ABI, atau signature tidak sesuai. APK invalid tidak boleh mencapai installer.
 5. Tolak izin sumber tak dikenal lalu coba lagi setelah grant; tutup app dari pengaturan izin dan buka lagi untuk memastikan APK cache diverifikasi ulang. Batalkan installer: jangan laporkan sukses dan sediakan retry. Setelah sukses, versi baru harus terbuka, data/PAK bertahan, dan downgrade tidak ditawarkan.
 6. Putuskan jaringan saat cek/unduh atau hentikan app saat download. Partial/corrupt cache tidak siap dipasang dan harus dapat diunduh ulang. Background check tidak boleh mencuri fokus/draft UID atau memblokir akses game.

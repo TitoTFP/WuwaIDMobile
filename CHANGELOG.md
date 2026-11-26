@@ -1,8 +1,9 @@
 # Changelog
 
-## Unreleased
+## 1.1.0
 
 - **Frontend redesign:** put the next translation action and separate game, access, and file checks on Home. Rebuild the UID and Maintenance screens, theme controls, and responsive navigation. Preserve native permission and installation gates.
+- **Android patch ownership & permissions (PR #14):** restore game UID/GID ownership and `0755`/`0644` permission normalization after `mkdir`, `write`, `copy`, and `move_file` in `StorageUserService` (covering Root, Shizuku, and AxManager), bump Shizuku `UserServiceArgs` to version 5, and check `ResManifest` with `exists()` in `GamePackages`.
 
 ## 1.0.1
 
