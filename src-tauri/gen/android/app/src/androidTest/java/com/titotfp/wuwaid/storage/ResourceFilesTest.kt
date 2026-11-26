@@ -178,4 +178,36 @@ class ResourceFilesTest {
     assertEquals(0L, stat.getLong("size"))
     assertThrows(IllegalArgumentException::class.java) { files.metadata("read_text", "payload", null) }
   }
+
+  @Test
+  fun applyOwnershipNormalizesModesAndRejectsSymlinks() = withFixture { files, payload ->
+    val version = File(payload.parentFile, "3.8.0")
+    val patchDir = File(version, "wuwaid")
+    val mountDir = File(version, "Mount")
+    check(patchDir.mkdirs())
+    check(mountDir.mkdirs())
+    val pak = File(patchDir, "WuwaID_99_P.pak")
+    val mount = File(mountDir, "wuwaid.txt")
+    pak.writeText("pak")
+    mount.writeText("mount")
+    Os.chmod(patchDir.path, 448) // 0700
+    Os.chmod(pak.path, 384) // 0600
+    Os.chmod(mount.path, 384) // 0600
+
+    files.applyOwnership("3.8.0/wuwaid/WuwaID_99_P.pak", isDirectory = false)
+    files.applyOwnership("3.8.0/Mount/wuwaid.txt", isDirectory = false)
+    assertEquals(493, Os.lstat(patchDir.path).st_mode and 0x1ff)
+    assertEquals(420, Os.lstat(pak.path).st_mode and 0x1ff)
+    assertEquals(420, Os.lstat(mount.path).st_mode and 0x1ff)
+
+    val link = File(patchDir, "WuwaID_99_P.sig")
+    Os.symlink(pak.path, link.path)
+    try {
+      assertThrows(SecurityException::class.java) {
+        files.applyOwnership("3.8.0/wuwaid/WuwaID_99_P.sig", isDirectory = false)
+      }
+    } finally {
+      check(link.delete())
+    }
+  }
 }

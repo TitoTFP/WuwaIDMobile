@@ -1,5 +1,7 @@
 package com.titotfp.wuwaid.storage
 
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -78,5 +80,11 @@ class StorageBoundaryTest {
     assertFalse(isAxManagerCompatible(36, 10, 30000, 30000))
     assertFalse(isAxManagerCompatible(36, 0, 29999, 30000))
     assertFalse(isAxManagerCompatible(36, 0, 30000, 29999))
+  }
+
+  @Test fun ownerSelectionPrefersNonRootGameOwnerAndFallsBackToGameGroup() {
+    assertEquals(10345 to 1078, selectOwner(listOf(10345 to 1078, 0 to 9997)))
+    assertEquals(0 to 9997, selectOwner(listOf(0 to 9997, 0 to 0)))
+    assertNull(selectOwner(emptyList()))
   }
 }

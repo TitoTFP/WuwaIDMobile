@@ -28,7 +28,7 @@ internal object GamePackages {
       val root = resources(packageName)
       root.listFiles()?.any { version ->
         version.isDirectory && versionPattern.matches(version.name) &&
-          File(version, "ResManifest").isFile && File(version, "Mount/MountResource.txt").isFile &&
+          File(version, "ResManifest").exists() && File(version, "Mount/MountResource.txt").isFile &&
           !File(version, "Resource").list().isNullOrEmpty()
       } == true
     } ?: ordered.first()
